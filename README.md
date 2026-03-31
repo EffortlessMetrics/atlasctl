@@ -42,7 +42,7 @@ That makes delegation expensive.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/atlasctl.git
+git clone https://github.com/EffortlessMetrics/atlasctl.git
 cd atlasctl
 
 # Build the release binary
@@ -203,7 +203,7 @@ That is enough to dogfood on this repo and to extend later with impact analysis 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/atlasctl.git
+git clone https://github.com/EffortlessMetrics/atlasctl.git
 cd atlasctl
 
 # Install development dependencies (optional, for xtask)

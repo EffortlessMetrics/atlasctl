@@ -8,7 +8,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 // Helper to get path to a fixture repo
-fn fixture_path(name: &str) -> String {
+fn fixture_path(name: &str) -> std::path::PathBuf {
     // Get the workspace directory from CARGO_MANIFEST_DIR or use a default
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
 
@@ -21,9 +21,6 @@ fn fixture_path(name: &str) -> String {
     workspace_root
         .join("fixtures/repos")
         .join(name)
-        .to_str()
-        .expect("Failed to convert path to string")
-        .to_string()
 }
 
 // Helper to create a temp dir and copy a fixture into it
@@ -38,7 +35,7 @@ fn setup_temp_fixture(fixture_name: &str) -> TempDir {
 }
 
 // Recursive directory copy helper
-fn copy_dir_recursive(src: &str, dst: &std::path::Path) -> std::io::Result<()> {
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
@@ -47,9 +44,9 @@ fn copy_dir_recursive(src: &str, dst: &std::path::Path) -> std::io::Result<()> {
 
         if file_type.is_dir() {
             fs::create_dir_all(&dst_path)?;
-            copy_dir_recursive(src_path.to_str().unwrap(), &dst_path)?;
+            copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            fs::copy(src_path, &dst_path)?;
+            fs::copy(&src_path, &dst_path)?;
         }
     }
     Ok(())
