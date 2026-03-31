@@ -1,0 +1,4 @@
+nodes:
+  - id: scen:lonely
+    kind: scenario
+    title: Lonely scenario

@@ -1,0 +1,35 @@
+nodes:
+  - id: req:example
+    kind: requirement
+    title: Example requirement
+
+  - id: scen:example-build
+    kind: scenario
+    title: Example build
+    paths:
+      - crates/engine/src/lib.rs
+
+  - id: cmd:ci-fast
+    kind: command
+    title: Fast CI
+
+  - id: artifact:example-report
+    kind: artifact
+    title: Example report
+
+edges:
+  - from: scen:example-build
+    kind: proves
+    to: req:example
+
+  - from: scen:example-build
+    kind: runs_with
+    to: cmd:ci-fast
+
+  - from: scen:example-build
+    kind: exercises
+    to: crate:engine
+
+  - from: scen:example-build
+    kind: emits
+    to: artifact:example-report

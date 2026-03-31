@@ -1,0 +1,5 @@
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+ignore = ["target", ".git"]

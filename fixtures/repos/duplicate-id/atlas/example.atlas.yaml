@@ -1,0 +1,8 @@
+nodes:
+  - id: req:example
+    kind: requirement
+    title: One
+
+  - id: req:example
+    kind: requirement
+    title: Two

@@ -1,0 +1,16 @@
+[package]
+name = "atlasctl-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+atlasctl-app = { path = "../atlasctl-app" }
+atlasctl-codes = { path = "../atlasctl-codes" }
+atlasctl-discover-fs = { path = "../atlasctl-discover-fs" }
+atlasctl-render = { path = "../atlasctl-render" }
+atlasctl-types = { path = "../atlasctl-types" }
+camino.workspace = true
+clap.workspace = true
+serde_json.workspace = true

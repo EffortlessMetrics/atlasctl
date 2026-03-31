@@ -1,0 +1,13 @@
+[package]
+name = "atlasctl-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+atlasctl-codes = { path = "../atlasctl-codes" }
+atlasctl-types = { path = "../atlasctl-types" }
+
+[dev-dependencies]
+proptest.workspace = true

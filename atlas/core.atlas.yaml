@@ -1,0 +1,74 @@
+nodes:
+  - id: req:deterministic-atlas
+    kind: requirement
+    title: Deterministic atlas
+    summary: The atlas must compile into stable machine-readable and human-readable artifacts.
+
+  - id: req:queryable-proof-topology
+    kind: requirement
+    title: Queryable proof topology
+    summary: The repo should expose its behavior and proof surfaces through query and trace operations.
+
+  - id: scen:build-emits-canonical-atlas
+    kind: scenario
+    title: Build emits canonical atlas
+    summary: The build command compiles the repo into atlas.json and atlas.md.
+    paths:
+      - crates/atlasctl-cli/src/main.rs
+      - crates/atlasctl-render/src/lib.rs
+
+  - id: scen:check-fails-on-broken-links
+    kind: scenario
+    title: Check fails on broken links
+    summary: Structural validation rejects broken graph references.
+    paths:
+      - crates/atlasctl-core/src/lib.rs
+
+  - id: scen:query-and-trace-navigate-behavior
+    kind: scenario
+    title: Query and trace navigate behavior
+    summary: Query and trace expose the atlas as a navigation layer.
+    paths:
+      - crates/atlasctl-core/src/lib.rs
+      - crates/atlasctl-cli/src/main.rs
+
+edges:
+  - from: scen:build-emits-canonical-atlas
+    kind: proves
+    to: req:deterministic-atlas
+
+  - from: scen:check-fails-on-broken-links
+    kind: proves
+    to: req:deterministic-atlas
+
+  - from: scen:query-and-trace-navigate-behavior
+    kind: proves
+    to: req:queryable-proof-topology
+
+  - from: scen:build-emits-canonical-atlas
+    kind: emits
+    to: artifact:atlas-json
+
+  - from: scen:build-emits-canonical-atlas
+    kind: emits
+    to: artifact:atlas-markdown
+
+  - from: scen:build-emits-canonical-atlas
+    kind: exercises
+    to: crate:atlasctl-render
+
+  - from: scen:build-emits-canonical-atlas
+    kind: exercises
+    to: crate:atlasctl-cli
+
+  - from: scen:check-fails-on-broken-links
+    kind: exercises
+    to: crate:atlasctl-core
+
+  - from: scen:query-and-trace-navigate-behavior
+    kind: exercises
+    to: crate:atlasctl-core
+
+  - from: scen:query-and-trace-navigate-behavior
+    kind: exercises
+    to: crate:atlasctl-cli

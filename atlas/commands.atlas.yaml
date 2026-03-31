@@ -1,0 +1,37 @@
+nodes:
+  - id: cmd:ci-fast
+    kind: command
+    title: Fast CI
+    attrs:
+      exec: cargo run -p xtask -- ci-fast
+
+  - id: cmd:ci-full
+    kind: command
+    title: Full CI
+    attrs:
+      exec: cargo run -p xtask -- ci-full
+
+  - id: cmd:smoke
+    kind: command
+    title: Smoke build
+    attrs:
+      exec: cargo run -p xtask -- smoke
+
+  - id: cmd:docs-check
+    kind: command
+    title: Documentation checks
+    attrs:
+      exec: cargo run -p xtask -- docs-check
+
+edges:
+  - from: scen:build-emits-canonical-atlas
+    kind: runs_with
+    to: cmd:smoke
+
+  - from: scen:check-fails-on-broken-links
+    kind: runs_with
+    to: cmd:ci-fast
+
+  - from: scen:query-and-trace-navigate-behavior
+    kind: runs_with
+    to: cmd:ci-fast

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/atlas.schema.json",
+  "title": "atlasctl atlas",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tool_version",
+    "repo",
+    "nodes",
+    "edges",
+    "diagnostics",
+    "metrics"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "tool_version": { "type": "string" },
+    "repo": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "title", "provenance"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "title": { "type": "string" }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "kind", "to", "provenance"],
+        "properties": {
+          "from": { "type": "string" },
+          "kind": { "type": "string" },
+          "to": { "type": "string" }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array"
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "node_count",
+        "edge_count",
+        "diagnostic_count",
+        "error_count",
+        "warning_count"
+      ],
+      "properties": {
+        "node_count": { "type": "integer", "minimum": 0 },
+        "edge_count": { "type": "integer", "minimum": 0 },
+        "diagnostic_count": { "type": "integer", "minimum": 0 },
+        "error_count": { "type": "integer", "minimum": 0 },
+        "warning_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

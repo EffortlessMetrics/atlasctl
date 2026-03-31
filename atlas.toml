@@ -1,0 +1,20 @@
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "README.md", "AGENTS.md", "TESTING.md", "RELEASE.md"]
+ignore = ["target", ".git", "node_modules"]
+
+[profiles.default]
+require_scenario_command = true
+require_scenario_crate = true
+
+[profiles.ci]
+require_scenario_command = true
+require_scenario_crate = true
+require_artifact_producer = true
+
+[profiles.strict]
+require_scenario_command = true
+require_scenario_crate = true
+require_artifact_producer = true
+warnings_as_errors = true

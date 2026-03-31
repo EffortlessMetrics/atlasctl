@@ -1,0 +1,9 @@
+nodes:
+  - id: scen:broken
+    kind: scenario
+    title: Broken command reference
+
+edges:
+  - from: scen:broken
+    kind: runs_with
+    to: cmd:missing

@@ -1,0 +1,12 @@
+nodes:
+  - id: artifact:atlas-json
+    kind: artifact
+    title: atlas.json
+    paths:
+      - .atlas/atlas.json
+
+  - id: artifact:atlas-markdown
+    kind: artifact
+    title: atlas.md
+    paths:
+      - .atlas/atlas.md
