@@ -14,3 +14,8 @@ atlasctl-types = { path = "../atlasctl-types" }
 camino.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile = "3.10"

@@ -1,0 +1,35 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: duplicate-id
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `2`
+- Edges: `0`
+- Diagnostics: `1` (errors: `1`, warnings: `0`)
+
+## Nodes by kind
+
+### requirement
+
+- `req:example` — One
+  - Source: `atlas\example.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Paths: `crates\engine`
+
+## Edges
+
+
+## Diagnostics
+
+- [error] `duplicate_id` — duplicate atlas id `req:example` declared in both `atlas\example.atlas.yaml` and `atlas\example.atlas.yaml`
+  - Subject: `req:example`
+  - Location: `atlas\example.atlas.yaml`

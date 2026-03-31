@@ -3,8 +3,8 @@
 use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
     AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode, DiscoveredRepo,
-    EdgeKind, NodeKind, NodeMatch, ProfileSettings, QueryRequest, QueryResponse,
-    SourceLocation, TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile,
+    EdgeKind, NodeKind, NodeMatch, ProfileSettings, QueryRequest, QueryResponse, SourceLocation,
+    TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile,
     ATLAS_SCHEMA_VERSION,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -370,7 +370,7 @@ fn apply_profile_escalation(settings: &ProfileSettings, diagnostics: &mut [Atlas
     }
 }
 
-fn sort_diagnostics(diagnostics: &mut Vec<AtlasDiagnostic>) {
+fn sort_diagnostics(diagnostics: &mut [AtlasDiagnostic]) {
     diagnostics.sort_by(|left, right| {
         left.code
             .cmp(&right.code)
@@ -380,7 +380,10 @@ fn sort_diagnostics(diagnostics: &mut Vec<AtlasDiagnostic>) {
     });
 }
 
-fn compare_locations(left: Option<&SourceLocation>, right: Option<&SourceLocation>) -> std::cmp::Ordering {
+fn compare_locations(
+    left: Option<&SourceLocation>,
+    right: Option<&SourceLocation>,
+) -> std::cmp::Ordering {
     match (left, right) {
         (Some(left), Some(right)) => left
             .path
@@ -406,10 +409,12 @@ fn edge_endpoint_is_valid(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atlasctl_ports::DiscoveryPort;
     use atlasctl_types::{
         AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind, PathSelector,
         Provenance, RepoDescriptor,
     };
+    use proptest::proptest;
     use std::collections::BTreeMap;
 
     fn node(id: &str, kind: NodeKind) -> AtlasNode {
@@ -440,7 +445,10 @@ mod tests {
                 name: "sample".to_string(),
             },
             config: AtlasConfig::default(),
-            nodes: vec![node("scen:one", NodeKind::Scenario), node("scen:one", NodeKind::Scenario)],
+            nodes: vec![
+                node("scen:one", NodeKind::Scenario),
+                node("scen:one", NodeKind::Scenario),
+            ],
             edges: vec![],
             diagnostics: vec![],
         };
@@ -459,7 +467,10 @@ mod tests {
                 name: "sample".to_string(),
             },
             config: AtlasConfig::default(),
-            nodes: vec![node("scen:one", NodeKind::Scenario), node("crate:engine", NodeKind::Crate)],
+            nodes: vec![
+                node("scen:one", NodeKind::Scenario),
+                node("crate:engine", NodeKind::Crate),
+            ],
             edges: vec![edge("scen:one", EdgeKind::Exercises, "crate:engine")],
             diagnostics: vec![],
         };
@@ -501,5 +512,1081 @@ mod tests {
         );
 
         assert_eq!(response.matches.first().map(|entry| entry.score), Some(100));
+    }
+
+    // ============================================================================
+    // BDD/SCENARIO TESTS - End-to-end workflow testing with fixture repos
+    // ============================================================================
+
+    /// SCENARIO: Building a complete atlas from a valid minimal fixture repo
+    ///
+    /// GIVEN a valid minimal repository with atlas metadata
+    /// WHEN the atlas is compiled with the default validation profile
+    /// THEN the graph should contain all expected nodes and edges
+    /// AND all diagnostics should be empty (no errors or warnings)
+    #[test]
+    fn scenario_build_complete_atlas_from_valid_minimal_fixture() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        let graph = compile_atlas(discovered, ValidationProfile::Default);
+
+        // Verify the graph structure
+        assert_eq!(graph.repo.name, "valid-minimal");
+        assert_eq!(graph.metrics.node_count, 6); // Includes ADR from markdown
+        assert_eq!(graph.metrics.edge_count, 5); // Includes ADR explains edge
+
+        // Verify all expected nodes are present
+        let node_ids: Vec<_> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(node_ids.contains(&"req:example"));
+        assert!(node_ids.contains(&"scen:example-build"));
+        assert!(node_ids.contains(&"cmd:ci-fast"));
+        assert!(node_ids.contains(&"artifact:example-report"));
+        assert!(node_ids.contains(&"crate:engine"));
+        assert!(node_ids.contains(&"adr:0001-example"));
+
+        // Verify all expected edges are present
+        let proves_edge = graph.edges.iter().find(|e| e.kind == EdgeKind::Proves);
+        assert!(proves_edge.is_some());
+
+        // Verify no diagnostics (clean build)
+        assert_eq!(graph.metrics.diagnostic_count, 0);
+        assert_eq!(graph.metrics.error_count, 0);
+        assert_eq!(graph.metrics.warning_count, 0);
+    }
+
+    /// SCENARIO: Detecting broken references in a fixture repo
+    ///
+    /// GIVEN a repository with an edge referencing a non-existent node
+    /// WHEN the atlas is compiled
+    /// THEN a BrokenReference diagnostic should be emitted
+    /// AND the invalid edge should be excluded from the graph
+    #[test]
+    fn scenario_detect_broken_references_from_broken_link_fixture() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/broken-link");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        let graph = compile_atlas(discovered, ValidationProfile::Default);
+
+        // Verify broken reference diagnostic is present
+        // The missing command is reported as CommandReferencedButUndeclared
+        let broken_ref_diagnostics: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::CommandReferencedButUndeclared)
+            .collect();
+
+        assert!(
+            !broken_ref_diagnostics.is_empty(),
+            "Should have broken reference diagnostics"
+        );
+        assert!(graph.metrics.error_count >= 1);
+
+        // Verify the invalid edge is excluded
+        let runs_with_edges: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|e| e.kind == EdgeKind::RunsWith)
+            .collect();
+        assert!(runs_with_edges.is_empty(), "Broken edge should be excluded");
+    }
+
+    /// SCENARIO: Detecting duplicate IDs in a fixture repo
+    ///
+    /// GIVEN a repository with two nodes sharing the same ID
+    /// WHEN the atlas is compiled
+    /// THEN a DuplicateId diagnostic should be emitted
+    /// AND only the first node should be included in the graph
+    #[test]
+    fn scenario_detect_duplicate_ids_from_duplicate_id_fixture() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/duplicate-id");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        let graph = compile_atlas(discovered, ValidationProfile::Default);
+
+        // Verify duplicate ID diagnostic is present
+        let duplicate_diagnostics: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::DuplicateId)
+            .collect();
+
+        assert!(
+            !duplicate_diagnostics.is_empty(),
+            "Should have duplicate ID diagnostics"
+        );
+        assert_eq!(graph.metrics.error_count, 1);
+
+        // Verify only one node with the duplicate ID exists
+        let duplicate_nodes: Vec<_> = graph
+            .nodes
+            .iter()
+            .filter(|n| n.id.as_str() == "req:example")
+            .collect();
+        assert_eq!(
+            duplicate_nodes.len(),
+            1,
+            "Only first duplicate should be kept"
+        );
+    }
+
+    /// SCENARIO: Detecting orphan scenarios in a fixture repo
+    ///
+    /// GIVEN a repository with a scenario that has no required edges
+    /// WHEN the atlas is compiled with the default profile
+    /// THEN diagnostics should be emitted for missing command and crate edges
+    #[test]
+    fn scenario_detect_orphan_scenarios_from_orphan_scenario_fixture() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/orphan-scenario");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        let graph = compile_atlas(discovered, ValidationProfile::Default);
+
+        // Verify scenario missing command diagnostic is present
+        let missing_command_diagnostics: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::ScenarioMissingCommand)
+            .collect();
+
+        assert!(
+            !missing_command_diagnostics.is_empty(),
+            "Should have missing command diagnostics"
+        );
+
+        // Verify scenario missing crate diagnostic is present
+        let missing_crate_diagnostics: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::ScenarioMissingCrate)
+            .collect();
+
+        assert!(
+            !missing_crate_diagnostics.is_empty(),
+            "Should have missing crate diagnostics"
+        );
+
+        assert!(graph.metrics.error_count >= 2);
+    }
+
+    /// SCENARIO: Querying the atlas with different search terms
+    ///
+    /// GIVEN a compiled atlas from a valid minimal fixture
+    /// WHEN querying with various search terms
+    /// THEN results should be returned with appropriate scores
+    /// AND exact ID matches should have the highest score
+    #[test]
+    fn scenario_query_with_different_search_terms() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+        let graph = compile_atlas(discovered, ValidationProfile::Default);
+
+        // Query 1: Exact ID match should score 100
+        let response = query_graph(
+            &graph,
+            &QueryRequest {
+                needle: "scen:example-build".to_string(),
+                kind: None,
+            },
+        );
+        assert_eq!(response.needle, "scen:example-build");
+        assert!(!response.matches.is_empty());
+        assert_eq!(response.matches.first().map(|m| m.score), Some(100));
+
+        // Query 2: Partial ID match should score 80
+        let response = query_graph(
+            &graph,
+            &QueryRequest {
+                needle: "example".to_string(),
+                kind: None,
+            },
+        );
+        assert_eq!(response.needle, "example");
+        assert!(!response.matches.is_empty());
+        assert!(response.matches.iter().any(|m| m.score == 80));
+
+        // Query 3: Partial ID match should score 80 (takes precedence over title match)
+        let response = query_graph(
+            &graph,
+            &QueryRequest {
+                needle: "build".to_string(),
+                kind: None,
+            },
+        );
+        assert_eq!(response.needle, "build");
+        assert!(!response.matches.is_empty());
+        // "scen:example-build" ID contains "build", so scores 80
+        assert!(
+            response.matches.iter().any(|m| m.score == 80),
+            "Expected a partial ID match with score 80"
+        );
+
+        // Query 4: Filter by node kind
+        let response = query_graph(
+            &graph,
+            &QueryRequest {
+                needle: "".to_string(),
+                kind: Some(NodeKind::Scenario),
+            },
+        );
+        assert_eq!(response.needle, "");
+        assert!(response
+            .matches
+            .iter()
+            .all(|m| m.node.kind == NodeKind::Scenario));
+    }
+
+    /// SCENARIO: Tracing the atlas with different directions
+    ///
+    /// GIVEN a compiled atlas from a valid minimal fixture
+    /// WHEN tracing from a scenario node with different directions
+    /// THEN the trace should return appropriate nodes and edges
+    /// AND depth should be respected
+    #[test]
+    fn scenario_trace_with_different_directions() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+        let graph = compile_atlas(discovered, ValidationProfile::Default);
+
+        let start_id = AtlasId::parse("scen:example-build").expect("valid id");
+
+        // Trace 1: Outgoing edges (what the scenario exercises/emits)
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id.clone(),
+                direction: TraceDirection::Outgoing,
+                max_depth: 10,
+            },
+        );
+        assert!(response.is_some());
+        let response = response.unwrap();
+        assert_eq!(response.root.id.as_str(), "scen:example-build");
+        assert!(!response.edges.is_empty());
+        assert!(response.edges.iter().all(|e| e.edge.from == start_id));
+
+        // Trace 2: Incoming edges (what references the scenario)
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id.clone(),
+                direction: TraceDirection::Incoming,
+                max_depth: 10,
+            },
+        );
+        assert!(response.is_some());
+        let response = response.unwrap();
+        assert_eq!(response.root.id.as_str(), "scen:example-build");
+        // No incoming edges for this scenario in the fixture
+
+        // Trace 3: Both directions
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id.clone(),
+                direction: TraceDirection::Both,
+                max_depth: 10,
+            },
+        );
+        assert!(response.is_some());
+        let response = response.unwrap();
+        assert_eq!(response.root.id.as_str(), "scen:example-build");
+        assert!(!response.edges.is_empty());
+
+        // Trace 4: Max depth of 0 should return no edges
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id.clone(),
+                direction: TraceDirection::Outgoing,
+                max_depth: 0,
+            },
+        );
+        assert!(response.is_some());
+        let response = response.unwrap();
+        assert_eq!(response.edges.len(), 0);
+    }
+
+    /// SCENARIO: Validation with different profiles
+    ///
+    /// GIVEN a repository with various validation issues
+    /// WHEN compiling with different validation profiles
+    /// THEN diagnostics should vary based on profile settings
+    /// AND strict profile should escalate warnings to errors
+    #[test]
+    fn scenario_validation_with_different_profiles() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/orphan-scenario");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        // Compile with Default profile
+        let default_graph = compile_atlas(discovered.clone(), ValidationProfile::Default);
+        assert!(default_graph.metrics.error_count > 0);
+
+        // Compile with CI profile (requires artifact producers)
+        let ci_graph = compile_atlas(discovered.clone(), ValidationProfile::Ci);
+        assert!(ci_graph.metrics.error_count > 0);
+
+        // Compile with Strict profile (warnings as errors)
+        let strict_graph = compile_atlas(discovered, ValidationProfile::Strict);
+        assert!(strict_graph.metrics.error_count > 0);
+
+        // Strict should have at least as many errors as Default
+        assert!(strict_graph.metrics.error_count >= default_graph.metrics.error_count);
+    }
+
+    /// SCENARIO: Query returns results sorted by relevance score
+    ///
+    /// GIVEN a compiled atlas with multiple matching nodes
+    /// WHEN performing a query
+    /// THEN results should be sorted by score in descending order
+    /// AND ties should be broken by ID for deterministic ordering
+    #[test]
+    fn scenario_query_results_sorted_by_relevance_score() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("scen:example", NodeKind::Scenario),
+                node("scen:example-test", NodeKind::Scenario),
+                node("req:example", NodeKind::Requirement),
+                node("cmd:example", NodeKind::Command),
+            ],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let response = query_graph(
+            &graph,
+            &QueryRequest {
+                needle: "example".to_string(),
+                kind: None,
+            },
+        );
+
+        // Verify results are sorted by score (descending)
+        let mut scores: Vec<_> = response.matches.iter().map(|m| m.score).collect();
+        scores.sort_by(|a, b| b.cmp(a)); // Sort descending
+        let actual_scores: Vec<_> = response.matches.iter().map(|m| m.score).collect();
+        assert_eq!(
+            scores, actual_scores,
+            "Results should be sorted by score descending"
+        );
+    }
+
+    /// SCENARIO: Trace respects max_depth parameter
+    ///
+    /// GIVEN a graph with multi-level relationships
+    /// WHEN tracing with a limited max_depth
+    /// THEN only edges up to that depth should be returned
+    #[test]
+    fn scenario_trace_respects_max_depth_parameter() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("scen:root", NodeKind::Scenario),
+                node("req:level1", NodeKind::Requirement),
+                node("cmd:level1", NodeKind::Command),
+                node("crate:level2", NodeKind::Crate),
+            ],
+            edges: vec![
+                edge("scen:root", EdgeKind::Proves, "req:level1"),
+                edge("scen:root", EdgeKind::RunsWith, "cmd:level1"),
+                edge("req:level1", EdgeKind::BelongsTo, "crate:level2"),
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let start_id = AtlasId::parse("scen:root").expect("valid id");
+
+        // Trace with max_depth = 1
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id.clone(),
+                direction: TraceDirection::Outgoing,
+                max_depth: 1,
+            },
+        );
+        assert!(response.is_some());
+        let response = response.unwrap();
+        // Should only have edges at depth 1
+        assert!(response.edges.iter().all(|e| e.depth == 1));
+
+        // Trace with max_depth = 2
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id.clone(),
+                direction: TraceDirection::Both,
+                max_depth: 2,
+            },
+        );
+        assert!(response.is_some());
+        let response = response.unwrap();
+        // Should have edges at depth 1 and 2
+        let depths: Vec<_> = response.edges.iter().map(|e| e.depth).collect();
+        assert!(depths.contains(&1));
+        assert!(depths.contains(&2));
+    }
+
+    /// SCENARIO: Query with no matches returns empty results
+    ///
+    /// GIVEN a compiled atlas
+    /// WHEN querying with a term that matches nothing
+    /// THEN the response should contain no matches
+    #[test]
+    fn scenario_query_with_no_matches_returns_empty_results() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("scen:example", NodeKind::Scenario),
+                node("req:example", NodeKind::Requirement),
+            ],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let response = query_graph(
+            &graph,
+            &QueryRequest {
+                needle: "nonexistent".to_string(),
+                kind: None,
+            },
+        );
+
+        assert_eq!(response.needle, "nonexistent");
+        assert_eq!(response.matches.len(), 0);
+    }
+
+    /// SCENARIO: Trace with non-existent start node returns None
+    ///
+    /// GIVEN a compiled atlas
+    /// WHEN tracing from a node ID that doesn't exist
+    /// THEN the function should return None
+    #[test]
+    fn scenario_trace_with_nonexistent_node_returns_none() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![node("scen:example", NodeKind::Scenario)],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let start_id = AtlasId::parse("node:nonexistent").expect("valid id");
+
+        let response = trace_graph(
+            &graph,
+            &TraceRequest {
+                start: start_id,
+                direction: TraceDirection::Outgoing,
+                max_depth: 10,
+            },
+        );
+
+        assert!(response.is_none());
+    }
+
+    // ============================================================================
+    // PROPERTY TESTS - Invariant testing with proptest
+    // ============================================================================
+
+    // PROPERTY: Deterministic ordering of graph compilation
+    //
+    // GIVEN the same discovered repo (same nodes, edges, config)
+    // WHEN compiled multiple times
+    // THEN the resulting graph should always have the same node and edge order
+    proptest! {
+        #[test]
+        fn prop_compilation_is_deterministic(
+            nodes in proptest::collection::vec(
+                proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+                0..10
+            ),
+            edges in proptest::collection::vec(
+                (proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+                 proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap()),
+                0..10
+            ),
+        ) {
+        use std::collections::BTreeMap;
+
+        // Helper to create a valid node
+        let create_node = |id_str: String| -> AtlasNode {
+            let id = AtlasId::parse(&id_str).unwrap_or_else(|_| AtlasId::parse("req:default").unwrap());
+            let kind = match id.kind_prefix() {
+                "req" => NodeKind::Requirement,
+                "scen" => NodeKind::Scenario,
+                "cmd" => NodeKind::Command,
+                "crate" => NodeKind::Crate,
+                "artifact" => NodeKind::Artifact,
+                "adr" => NodeKind::Adr,
+                "guide" => NodeKind::Guide,
+                "fixture" => NodeKind::Fixture,
+                "doc" => NodeKind::Document,
+                _ => NodeKind::Document,
+            };
+            AtlasNode {
+                id,
+                kind,
+                title: id_str.clone(),
+                summary: None,
+                paths: vec![PathSelector::new("src/lib.rs")],
+                attrs: BTreeMap::new(),
+                provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+            }
+        };
+
+        let valid_nodes: Vec<_> = nodes.into_iter().map(create_node).collect();
+
+        // Create valid edges (only between existing nodes)
+        let node_ids: Vec<_> = valid_nodes.iter().map(|n| n.id.clone()).collect();
+        let valid_edges: Vec<_> = edges
+            .into_iter()
+            .filter(|(from, to)| {
+                let from_id = AtlasId::parse(from).ok();
+                let to_id = AtlasId::parse(to).ok();
+                from_id.is_some() && to_id.is_some() &&
+                node_ids.contains(&from_id.unwrap()) &&
+                node_ids.contains(&to_id.unwrap())
+            })
+            .map(|(from, to)| AtlasEdge {
+                from: AtlasId::parse(&from).unwrap(),
+                kind: EdgeKind::Explains,
+                to: AtlasId::parse(&to).unwrap(),
+                provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+            })
+            .collect();
+
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: valid_nodes.clone(),
+            edges: valid_edges.clone(),
+            diagnostics: vec![],
+        };
+
+        // Compile twice
+        let graph1 = compile_atlas(repo.clone(), ValidationProfile::Default);
+        let graph2 = compile_atlas(repo.clone(), ValidationProfile::Default);
+
+        // Verify deterministic ordering
+        assert_eq!(graph1.nodes, graph2.nodes, "Node ordering should be deterministic");
+        assert_eq!(graph1.edges, graph2.edges, "Edge ordering should be deterministic");
+        assert_eq!(graph1.diagnostics, graph2.diagnostics, "Diagnostic ordering should be deterministic");
+    }
+    }
+
+    // PROPERTY: Edge validation for compatible node kinds
+    //
+    // GIVEN valid nodes and edges between compatible node kinds
+    // WHEN the graph is compiled
+    // THEN valid edges should always pass validation and be included in the graph
+    proptest! {
+        #[test]
+        fn prop_valid_edges_between_compatible_kinds_pass_validation(
+            kind1 in proptest::sample::select(vec![
+                NodeKind::Requirement, NodeKind::Scenario, NodeKind::Command,
+                NodeKind::Crate, NodeKind::Artifact, NodeKind::Adr,
+            ]),
+            kind2 in proptest::sample::select(vec![
+                NodeKind::Requirement, NodeKind::Scenario, NodeKind::Command,
+                NodeKind::Crate, NodeKind::Artifact, NodeKind::Adr,
+            ]),
+        ) {
+        let node1 = node("node:one", kind1);
+        let node2 = node("node:two", kind2);
+
+        // Try all edge kinds
+        for edge_kind in [
+            EdgeKind::Explains, EdgeKind::Proves, EdgeKind::UsesFixture,
+            EdgeKind::RunsWith, EdgeKind::Emits, EdgeKind::Exercises,
+            EdgeKind::Documents, EdgeKind::BelongsTo,
+        ] {
+            let test_edge = edge("node:one", edge_kind, "node:two");
+
+            let repo = DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node1.clone(), node2.clone()],
+                edges: vec![test_edge],
+                diagnostics: vec![],
+            };
+
+            let graph = compile_atlas(repo, ValidationProfile::Default);
+
+            // If the edge is valid according to edge_endpoint_is_valid, it should be in the graph
+            let is_valid = edge_endpoint_is_valid(edge_kind, kind1, kind2);
+            let edge_in_graph = graph.edges.iter().any(|e| e.kind == edge_kind && e.from == node1.id && e.to == node2.id);
+
+            // For valid edge configurations, the edge should be present
+            if is_valid {
+                assert!(edge_in_graph, "Valid edge {:?} between {:?} and {:?} should be in graph", edge_kind, kind1, kind2);
+            }
+        }
+        }
+    }
+
+    // PROPERTY: ID uniqueness detection is order-independent
+    //
+    // GIVEN nodes with duplicate IDs in any order
+    // WHEN the graph is compiled
+    // THEN duplicate IDs should always be detected regardless of order
+    proptest! {
+        #[test]
+        fn prop_duplicate_id_detection_is_order_independent(
+            duplicate_id in proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+            other_ids in proptest::collection::vec(
+                proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+                0..5
+            ),
+        ) {
+        use std::collections::BTreeMap;
+
+        let dup_id = AtlasId::parse(&duplicate_id).unwrap_or_else(|_| AtlasId::parse("req:dup").unwrap());
+
+        // Create two nodes with the same ID
+        let node1 = AtlasNode {
+            id: dup_id.clone(),
+            kind: NodeKind::Requirement,
+            title: "First".to_string(),
+            summary: None,
+            paths: vec![PathSelector::new("src/first.rs")],
+            attrs: BTreeMap::new(),
+            provenance: Provenance::new("atlas/first.atlas.yaml".into()),
+        };
+
+        let node2 = AtlasNode {
+            id: dup_id.clone(),
+            kind: NodeKind::Requirement,
+            title: "Second".to_string(),
+            summary: None,
+            paths: vec![PathSelector::new("src/second.rs")],
+            attrs: BTreeMap::new(),
+            provenance: Provenance::new("atlas/second.atlas.yaml".into()),
+        };
+
+        let other_nodes: Vec<_> = other_ids
+            .into_iter()
+            .filter_map(|id_str| {
+                let id = AtlasId::parse(&id_str).ok()?;
+                if id == dup_id {
+                    None
+                } else {
+                    Some(node(id.as_str(), NodeKind::Requirement))
+                }
+            })
+            .collect();
+
+        // Test with duplicate in different positions
+        for i in 0..=other_nodes.len() {
+            let mut nodes = other_nodes.clone();
+            nodes.insert(i, node1.clone());
+            nodes.insert(i + 1, node2.clone());
+
+            let repo = DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes,
+                edges: vec![],
+                diagnostics: vec![],
+            };
+
+            let graph = compile_atlas(repo, ValidationProfile::Default);
+
+            // Duplicate ID should always be detected
+            assert!(
+                graph.diagnostics.iter().any(|d| d.code == DiagnosticCode::DuplicateId),
+                "Duplicate ID should be detected regardless of position"
+            );
+
+            // Only one node with duplicate ID should exist
+            let count = graph.nodes.iter().filter(|n| n.id == dup_id).count();
+            assert_eq!(count, 1, "Only one instance of duplicate ID should exist");
+        }
+        }
+    }
+
+    // PROPERTY: Query determinism
+    //
+    // GIVEN a compiled graph and a query request
+    // WHEN the same query is executed multiple times
+    // THEN the results should always be identical
+    proptest! {
+        #[test]
+        fn prop_query_is_deterministic(
+            nodes in proptest::collection::vec(
+                proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+                1..10
+            ),
+            needle in "[a-z0-9_-]{1,20}",
+        ) {
+        use std::collections::BTreeMap;
+
+        let valid_nodes: Vec<_> = nodes
+            .into_iter()
+            .filter_map(|id_str| {
+                let id = AtlasId::parse(&id_str).ok()?;
+                Some(AtlasNode {
+                    id: id.clone(),
+                    kind: NodeKind::Requirement,
+                    title: format!("Title for {}", id_str),
+                    summary: Some(format!("Summary for {}", id_str)),
+                    paths: vec![PathSelector::new("src/lib.rs")],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                })
+            })
+            .collect();
+
+        proptest::prelude::prop_assume!(!valid_nodes.is_empty());
+
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: valid_nodes,
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let request = QueryRequest {
+            needle: needle.clone(),
+            kind: None,
+        };
+
+        // Execute query multiple times
+        let response1 = query_graph(&graph, &request);
+        let response2 = query_graph(&graph, &request);
+        let response3 = query_graph(&graph, &request);
+
+        // All responses should be identical
+        assert_eq!(response1, response2, "Query should be deterministic");
+        assert_eq!(response2, response3, "Query should be deterministic");
+        }
+    }
+
+    // PROPERTY: Trace determinism
+    //
+    // GIVEN a compiled graph and a trace request
+    // WHEN the same trace is executed multiple times
+    // THEN the results should always be identical
+    proptest! {
+        #[test]
+        fn prop_trace_is_deterministic(
+            nodes in proptest::collection::vec(
+                proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+                2..10
+            ),
+            max_depth in 0usize..5,
+            direction_idx in 0usize..3,
+        ) {
+        use std::collections::BTreeMap;
+
+        let valid_nodes: Vec<_> = nodes
+            .into_iter()
+            .filter_map(|id_str: String| {
+                let id = AtlasId::parse(&id_str).ok()?;
+                Some(AtlasNode {
+                    id: id.clone(),
+                    kind: NodeKind::Requirement,
+                    title: id_str.clone(),
+                    summary: None,
+                    paths: vec![PathSelector::new("src/lib.rs")],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                })
+            })
+            .collect();
+
+        proptest::prelude::prop_assume!(valid_nodes.len() >= 2);
+
+        // Create edges between consecutive nodes
+        let mut edges = Vec::new();
+        for i in 0..valid_nodes.len() - 1 {
+            edges.push(AtlasEdge {
+                from: valid_nodes[i].id.clone(),
+                kind: EdgeKind::Explains,
+                to: valid_nodes[i + 1].id.clone(),
+                provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+            });
+        }
+
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: valid_nodes,
+            edges,
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+
+        let direction = match direction_idx {
+            0 => TraceDirection::Outgoing,
+            1 => TraceDirection::Incoming,
+            _ => TraceDirection::Both,
+        };
+
+        let request = TraceRequest {
+            start: graph.nodes[0].id.clone(),
+            direction,
+            max_depth,
+        };
+
+        // Execute trace multiple times
+        let response1 = trace_graph(&graph, &request);
+        let response2 = trace_graph(&graph, &request);
+        let response3 = trace_graph(&graph, &request);
+
+        // All responses should be identical
+        assert_eq!(response1, response2, "Trace should be deterministic");
+        assert_eq!(response2, response3, "Trace should be deterministic");
+        }
+    }
+
+    // PROPERTY: Profile escalation
+    //
+    // GIVEN the same discovered repo
+    // WHEN compiled with different validation profiles
+    // THEN stricter profiles should catch more or equal diagnostics than looser profiles
+    proptest! {
+        #[test]
+        fn prop_stricter_profile_catches_more_diagnostics(
+            nodes in proptest::collection::vec(
+                proptest::string::string_regex("[a-z]+:[a-z0-9_-]+").unwrap(),
+                1..10
+            ),
+        ) {
+        use std::collections::BTreeMap;
+
+        let valid_nodes: Vec<_> = nodes
+            .into_iter()
+            .filter_map(|id_str: String| {
+                let id = AtlasId::parse(&id_str).ok()?;
+                let kind = match id.kind_prefix() {
+                    "scen" => NodeKind::Scenario,
+                    "cmd" => NodeKind::Command,
+                    "crate" => NodeKind::Crate,
+                    "artifact" => NodeKind::Artifact,
+                    _ => NodeKind::Requirement,
+                };
+                Some(AtlasNode {
+                    id: id.clone(),
+                    kind,
+                    title: id_str.clone(),
+                    summary: None,
+                    paths: vec![PathSelector::new("src/lib.rs")],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                })
+            })
+            .collect();
+
+        proptest::prelude::prop_assume!(!valid_nodes.is_empty());
+
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: valid_nodes,
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        // Compile with different profiles
+        let default_graph = compile_atlas(repo.clone(), ValidationProfile::Default);
+        let ci_graph = compile_atlas(repo.clone(), ValidationProfile::Ci);
+        let strict_graph = compile_atlas(repo, ValidationProfile::Strict);
+
+        // Stricter profiles should catch more or equal diagnostics
+        // CI profile requires artifact producers, so it should catch at least as much as Default
+        assert!(
+            ci_graph.metrics.error_count >= default_graph.metrics.error_count,
+            "CI profile should catch at least as many errors as Default"
+        );
+
+        // Strict profile escalates warnings to errors, so it should catch at least as much as CI
+        assert!(
+            strict_graph.metrics.error_count >= ci_graph.metrics.error_count,
+            "Strict profile should catch at least as many errors as CI"
+        );
+
+        // Strict should catch at least as much as Default
+        assert!(
+            strict_graph.metrics.error_count >= default_graph.metrics.error_count,
+            "Strict profile should catch at least as many errors as Default"
+        );
+        }
+    }
+}
+
+#[cfg(test)]
+mod golden {
+    use super::*;
+    use atlasctl_discover_fs::FsDiscovery;
+    use atlasctl_fixtures::repo;
+    use atlasctl_ports::{DiscoverRequest, DiscoveryPort, RenderPort};
+    use atlasctl_render::AtlasRenderer;
+    use atlasctl_types::RenderFormat;
+
+    const FIXTURES: &[&str] = &[
+        "valid-minimal",
+        "broken-link",
+        "duplicate-id",
+        "orphan-scenario",
+        "markdown-frontmatter",
+    ];
+
+    fn build_atlas(name: &str) -> AtlasGraph {
+        let repo_path = repo(name);
+        let discovery = FsDiscovery;
+        let request = DiscoverRequest {
+            repo_root: repo_path,
+            config_path: None,
+        };
+
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        compile_atlas(discovered, ValidationProfile::Default)
+    }
+
+    #[test]
+    fn golden_json_output() {
+        let renderer = AtlasRenderer;
+
+        for fixture in FIXTURES {
+            let graph = build_atlas(fixture);
+            let json_output = renderer
+                .render(&graph, RenderFormat::Json)
+                .expect("rendering JSON should succeed");
+
+            insta::assert_snapshot!(format!("golden/{}.json", fixture), json_output);
+        }
+    }
+
+    #[test]
+    fn golden_markdown_output() {
+        let renderer = AtlasRenderer;
+
+        for fixture in FIXTURES {
+            let graph = build_atlas(fixture);
+            let md_output = renderer
+                .render(&graph, RenderFormat::Markdown)
+                .expect("rendering Markdown should succeed");
+
+            insta::assert_snapshot!(format!("golden/{}.md", fixture), md_output);
+        }
     }
 }

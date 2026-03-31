@@ -1,0 +1,38 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: orphan-scenario
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `2`
+- Edges: `0`
+- Diagnostics: `2` (errors: `2`, warnings: `0`)
+
+## Nodes by kind
+
+### scenario
+
+- `scen:lonely` — Lonely scenario
+  - Source: `atlas\example.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Paths: `crates\engine`
+
+## Edges
+
+
+## Diagnostics
+
+- [error] `scenario_missing_command` — scenario `scen:lonely` does not declare a proving command
+  - Subject: `scen:lonely`
+  - Location: `atlas\example.atlas.yaml`
+- [error] `scenario_missing_crate` — scenario `scen:lonely` does not declare an exercised crate
+  - Subject: `scen:lonely`
+  - Location: `atlas\example.atlas.yaml`

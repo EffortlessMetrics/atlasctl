@@ -1,0 +1,69 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: json_output
+---
+{
+  "schema_version": 1,
+  "tool_version": "0.1.0",
+  "repo": {
+    "name": "duplicate-id"
+  },
+  "nodes": [
+    {
+      "id": "crate:engine",
+      "kind": "crate",
+      "title": "engine",
+      "summary": null,
+      "paths": [
+        {
+          "pattern": "crates\\engine"
+        }
+      ],
+      "attrs": {
+        "manifest_path": "\\\\?\\H:\\Code\\Rust\\atlasctl\\fixtures\\repos\\duplicate-id\\crates\\engine\\Cargo.toml",
+        "version": "0.1.0"
+      },
+      "provenance": {
+        "source": "Cargo.toml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "req:example",
+      "kind": "requirement",
+      "title": "One",
+      "summary": null,
+      "paths": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas\\example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    }
+  ],
+  "edges": [],
+  "diagnostics": [
+    {
+      "code": "duplicate_id",
+      "severity": "error",
+      "message": "duplicate atlas id `req:example` declared in both `atlas\\example.atlas.yaml` and `atlas\\example.atlas.yaml`",
+      "subject": "req:example",
+      "location": {
+        "path": "atlas\\example.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    }
+  ],
+  "metrics": {
+    "node_count": 2,
+    "edge_count": 0,
+    "diagnostic_count": 1,
+    "error_count": 1,
+    "warning_count": 0
+  }
+}

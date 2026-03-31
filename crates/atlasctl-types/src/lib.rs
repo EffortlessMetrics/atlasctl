@@ -21,7 +21,9 @@ pub enum AtlasIdError {
     InvalidFormat { input: String },
     #[error("atlas id kind must be lowercase ASCII with digits or underscores, got `{kind}`")]
     InvalidKind { kind: String },
-    #[error("atlas id slug must be lowercase ASCII with digits, dashes, or underscores, got `{slug}`")]
+    #[error(
+        "atlas id slug must be lowercase ASCII with digits, dashes, or underscores, got `{slug}`"
+    )]
     InvalidSlug { slug: String },
 }
 
@@ -91,9 +93,9 @@ fn kind_is_valid(input: &str) -> bool {
 
 fn slug_is_valid(input: &str) -> bool {
     !input.is_empty()
-        && input.chars().all(|ch| {
-            ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_'
-        })
+        && input
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_')
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

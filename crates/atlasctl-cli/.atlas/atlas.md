@@ -1,0 +1,56 @@
+# Atlas: .tmpmWlpoW
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `6`
+- Edges: `5`
+- Diagnostics: `0` (errors: `0`, warnings: `0`)
+
+## Nodes by kind
+
+### requirement
+
+- `req:example` — Example requirement
+  - Source: `atlas\example.atlas.yaml`
+
+### adr
+
+- `adr:0001-example` — Example ADR
+  - Source: `docs\adr\0001-example.md`
+  - Paths: `docs\adr\0001-example.md`
+
+### scenario
+
+- `scen:example-build` — Example build
+  - Source: `atlas\example.atlas.yaml`
+  - Paths: `crates/engine/src/lib.rs`
+
+### command
+
+- `cmd:ci-fast` — Fast CI
+  - Source: `atlas\example.atlas.yaml`
+
+### artifact
+
+- `artifact:example-report` — Example report
+  - Source: `atlas\example.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Paths: `crates\engine`
+
+## Edges
+
+- `adr:0001-example` --explains--> `req:example`
+- `scen:example-build` --proves--> `req:example`
+- `scen:example-build` --runs_with--> `cmd:ci-fast`
+- `scen:example-build` --emits--> `artifact:example-report`
+- `scen:example-build` --exercises--> `crate:engine`
+
+## Diagnostics
+
+_No diagnostics._

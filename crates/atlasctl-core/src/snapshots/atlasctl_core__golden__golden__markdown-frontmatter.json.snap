@@ -1,0 +1,73 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: json_output
+---
+{
+  "schema_version": 1,
+  "tool_version": "0.1.0",
+  "repo": {
+    "name": "markdown-frontmatter"
+  },
+  "nodes": [
+    {
+      "id": "crate:engine",
+      "kind": "crate",
+      "title": "engine",
+      "summary": null,
+      "paths": [
+        {
+          "pattern": "crates\\engine"
+        }
+      ],
+      "attrs": {
+        "manifest_path": "\\\\?\\H:\\Code\\Rust\\atlasctl\\fixtures\\repos\\markdown-frontmatter\\crates\\engine\\Cargo.toml",
+        "version": "0.1.0"
+      },
+      "provenance": {
+        "source": "Cargo.toml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "guide:frontmatter-guide",
+      "kind": "guide",
+      "title": "Frontmatter guide",
+      "summary": null,
+      "paths": [
+        {
+          "pattern": "docs\\guide.md"
+        }
+      ],
+      "attrs": {},
+      "provenance": {
+        "source": "docs\\guide.md",
+        "line": null,
+        "column": null,
+        "fragment": "guide:frontmatter-guide"
+      }
+    }
+  ],
+  "edges": [],
+  "diagnostics": [
+    {
+      "code": "broken_reference",
+      "severity": "error",
+      "message": "edge `guide:frontmatter-guide` -> `req:frontmatter` references missing target node `req:frontmatter`",
+      "subject": "req:frontmatter",
+      "location": {
+        "path": "docs\\guide.md",
+        "line": null,
+        "column": null
+      }
+    }
+  ],
+  "metrics": {
+    "node_count": 2,
+    "edge_count": 0,
+    "diagnostic_count": 1,
+    "error_count": 1,
+    "warning_count": 0
+  }
+}

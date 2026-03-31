@@ -42,7 +42,11 @@ fn render_markdown(graph: &AtlasGraph) -> String {
         NodeKind::Crate,
         NodeKind::Document,
     ] {
-        let nodes: Vec<_> = graph.nodes.iter().filter(|node| node.kind == kind).collect();
+        let nodes: Vec<_> = graph
+            .nodes
+            .iter()
+            .filter(|node| node.kind == kind)
+            .collect();
         if nodes.is_empty() {
             continue;
         }

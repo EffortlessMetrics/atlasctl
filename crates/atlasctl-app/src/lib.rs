@@ -76,7 +76,10 @@ pub struct AtlasService<D, R> {
 
 impl<D, R> AtlasService<D, R> {
     pub fn new(discovery: D, renderer: R) -> Self {
-        Self { discovery, renderer }
+        Self {
+            discovery,
+            renderer,
+        }
     }
 }
 

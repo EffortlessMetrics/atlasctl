@@ -144,7 +144,7 @@ impl From<DirectionArg> for TraceDirection {
 
 fn main() {
     let cli = Cli::parse();
-    let service = AtlasService::new(FsDiscovery::default(), AtlasRenderer::default());
+    let service = AtlasService::new(FsDiscovery, AtlasRenderer);
 
     let code = match run(cli, service) {
         Ok(code) => code,
@@ -157,10 +157,7 @@ fn main() {
     exit(code as i32);
 }
 
-fn run(
-    cli: Cli,
-    service: AtlasService<FsDiscovery, AtlasRenderer>,
-) -> Result<ExitCode, String> {
+fn run(cli: Cli, service: AtlasService<FsDiscovery, AtlasRenderer>) -> Result<ExitCode, String> {
     match cli.command {
         Command::Build(args) => {
             let options = BuildOptions {
@@ -211,8 +208,7 @@ fn run(
         Command::Query(args) => {
             let kind = match args.kind {
                 Some(kind) => Some(
-                    NodeKind::from_str(&kind)
-                        .map_err(|_| format!("unknown node kind `{kind}`"))?,
+                    NodeKind::from_str(&kind).map_err(|_| format!("unknown node kind `{kind}`"))?,
                 ),
                 None => None,
             };
@@ -231,10 +227,7 @@ fn run(
                 println!("no matches");
             } else {
                 for hit in outcome.response.matches {
-                    println!(
-                        "{} [{}] {}",
-                        hit.node.id, hit.node.kind, hit.node.title
-                    );
+                    println!("{} [{}] {}", hit.node.id, hit.node.kind, hit.node.title);
                     println!("  score: {}", hit.score);
                     println!("  source: {}", hit.node.provenance.source);
                     if let Some(summary) = hit.node.summary {
@@ -267,7 +260,10 @@ fn run(
                 return Ok(ExitCode::ValidationFailed);
             };
 
-            println!("root: {} [{}] {}", response.root.id, response.root.kind, response.root.title);
+            println!(
+                "root: {} [{}] {}",
+                response.root.id, response.root.kind, response.root.title
+            );
             println!();
 
             if response.nodes.is_empty() {

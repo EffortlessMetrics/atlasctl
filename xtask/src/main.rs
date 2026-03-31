@@ -30,7 +30,17 @@ fn main() {
 
 fn ci_fast() -> Result<(), String> {
     run("cargo", &["fmt", "--check"])?;
-    run("cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
+    run(
+        "cargo",
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
     run("cargo", &["test", "--workspace"])?;
     Ok(())
 }
@@ -43,12 +53,34 @@ fn ci_full() -> Result<(), String> {
 }
 
 fn smoke() -> Result<(), String> {
-    run("cargo", &["run", "-p", "atlasctl-cli", "--", "build", "--out-dir", ".atlas-smoke"])?;
+    run(
+        "cargo",
+        &[
+            "run",
+            "-p",
+            "atlasctl-cli",
+            "--",
+            "build",
+            "--out-dir",
+            ".atlas-smoke",
+        ],
+    )?;
     Ok(())
 }
 
 fn docs_check() -> Result<(), String> {
-    run("cargo", &["run", "-p", "atlasctl-cli", "--", "check", "--profile", "ci"])?;
+    run(
+        "cargo",
+        &[
+            "run",
+            "-p",
+            "atlasctl-cli",
+            "--",
+            "check",
+            "--profile",
+            "ci",
+        ],
+    )?;
     Ok(())
 }
 
@@ -65,6 +97,9 @@ fn run(command: &str, args: &[&str]) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("`{command} {}` exited with {status}", args.join(" ")))
+        Err(format!(
+            "`{command} {}` exited with {status}",
+            args.join(" ")
+        ))
     }
 }

@@ -37,7 +37,11 @@ impl DiscoveryPort for FsDiscovery {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
 
-        let files = collect_candidate_files(&repo_root, &config.discovery.roots, &config.discovery.ignore);
+        let files = collect_candidate_files(
+            &repo_root,
+            &config.discovery.roots,
+            &config.discovery.ignore,
+        );
         for rel_path in files {
             match classify_path(&rel_path) {
                 FileKind::Fragment => {
@@ -96,7 +100,10 @@ fn canonical_utf8(path: &Utf8Path) -> Result<Utf8PathBuf, DiscoveryError> {
     }
 }
 
-fn load_config(repo_root: &Utf8Path, explicit: Option<&Utf8PathBuf>) -> (AtlasConfig, Vec<AtlasDiagnostic>) {
+fn load_config(
+    repo_root: &Utf8Path,
+    explicit: Option<&Utf8PathBuf>,
+) -> (AtlasConfig, Vec<AtlasDiagnostic>) {
     let mut diagnostics = Vec::new();
     let config_path = explicit
         .cloned()
@@ -106,7 +113,8 @@ fn load_config(repo_root: &Utf8Path, explicit: Option<&Utf8PathBuf>) -> (AtlasCo
         return (AtlasConfig::default(), diagnostics);
     }
 
-    let rel = relative_path(repo_root, &config_path).unwrap_or_else(|| Utf8PathBuf::from("atlas.toml"));
+    let rel =
+        relative_path(repo_root, &config_path).unwrap_or_else(|| Utf8PathBuf::from("atlas.toml"));
     match fs::read_to_string(&config_path) {
         Ok(contents) => match toml::from_str::<AtlasConfig>(&contents) {
             Ok(config) => (config, diagnostics),
@@ -404,25 +412,13 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     }
 
     for target in raw.explains {
-        push_frontmatter_edge(
-            &mut batch,
-            &id,
-            EdgeKind::Explains,
-            &target,
-            rel_path,
-        );
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Explains, &target, rel_path);
     }
     for target in raw.proves {
         push_frontmatter_edge(&mut batch, &id, EdgeKind::Proves, &target, rel_path);
     }
     for target in raw.uses_fixture {
-        push_frontmatter_edge(
-            &mut batch,
-            &id,
-            EdgeKind::UsesFixture,
-            &target,
-            rel_path,
-        );
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::UsesFixture, &target, rel_path);
     }
     for target in raw.runs_with {
         push_frontmatter_edge(&mut batch, &id, EdgeKind::RunsWith, &target, rel_path);
@@ -450,7 +446,10 @@ fn push_frontmatter_edge(
     to: &str,
     rel_path: &Utf8Path,
 ) {
-    match (AtlasId::parse(from.to_string()), AtlasId::parse(to.to_string())) {
+    match (
+        AtlasId::parse(from.to_string()),
+        AtlasId::parse(to.to_string()),
+    ) {
         (Ok(from), Ok(to)) => batch.edges.push(AtlasEdge {
             from,
             kind,
@@ -597,12 +596,18 @@ fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
             .map(|path| path.to_path_buf())
             .unwrap_or_else(|| package.manifest_path.clone());
 
-        let rel_dir = relative_path(repo_root, &manifest_dir)
-            .unwrap_or_else(|| Utf8PathBuf::from(""));
+        let rel_dir =
+            relative_path(repo_root, &manifest_dir).unwrap_or_else(|| Utf8PathBuf::from(""));
 
         let mut attrs = BTreeMap::new();
-        attrs.insert("manifest_path".to_string(), Value::String(package.manifest_path.to_string()));
-        attrs.insert("version".to_string(), Value::String(package.version.to_string()));
+        attrs.insert(
+            "manifest_path".to_string(),
+            Value::String(package.manifest_path.to_string()),
+        );
+        attrs.insert(
+            "version".to_string(),
+            Value::String(package.version.to_string()),
+        );
 
         batch.nodes.push(AtlasNode {
             id: crate_id,

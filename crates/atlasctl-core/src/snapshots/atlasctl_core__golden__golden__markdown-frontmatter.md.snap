@@ -1,0 +1,36 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: markdown-frontmatter
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `2`
+- Edges: `0`
+- Diagnostics: `1` (errors: `1`, warnings: `0`)
+
+## Nodes by kind
+
+### guide
+
+- `guide:frontmatter-guide` — Frontmatter guide
+  - Source: `docs\guide.md`
+  - Paths: `docs\guide.md`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Paths: `crates\engine`
+
+## Edges
+
+
+## Diagnostics
+
+- [error] `broken_reference` — edge `guide:frontmatter-guide` -> `req:frontmatter` references missing target node `req:frontmatter`
+  - Subject: `req:frontmatter`
+  - Location: `docs\guide.md`
