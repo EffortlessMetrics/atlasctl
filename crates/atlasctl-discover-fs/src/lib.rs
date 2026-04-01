@@ -590,19 +590,29 @@ fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
             }
         };
 
-        let manifest_dir = package
-            .manifest_path
+        // Convert manifest_path to Utf8PathBuf for forward slash normalization
+        // cargo_metadata::Package::manifest_path is already Utf8PathBuf
+        let manifest_path = package.manifest_path.clone();
+
+        let manifest_dir = manifest_path
             .parent()
             .map(|path| path.to_path_buf())
-            .unwrap_or_else(|| package.manifest_path.clone());
+            .unwrap_or_else(|| manifest_path.clone());
 
         let rel_dir =
             relative_path(repo_root, &manifest_dir).unwrap_or_else(|| Utf8PathBuf::from(""));
 
+        // Store manifest_path as relative to repository root for deterministic output
+        let rel_manifest_path = relative_path(repo_root, &manifest_path)
+            .unwrap_or_else(|| Utf8PathBuf::from("Cargo.toml"));
+
+        // Normalize to forward slashes for cross-platform deterministic output
+        let manifest_path_normalized = rel_manifest_path.as_str().replace('\\', "/");
+
         let mut attrs = BTreeMap::new();
         attrs.insert(
             "manifest_path".to_string(),
-            Value::String(package.manifest_path.to_string()),
+            Value::String(manifest_path_normalized),
         );
         attrs.insert(
             "version".to_string(),

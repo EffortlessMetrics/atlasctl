@@ -20,7 +20,7 @@ expression: json_output
         }
       ],
       "attrs": {
-        "manifest_path": "\\\\?\\H:\\Code\\Rust\\atlasctl\\fixtures\\repos\\orphan-scenario\\crates\\engine\\Cargo.toml",
+        "manifest_path": "crates/engine/Cargo.toml",
         "version": "0.1.0"
       },
       "provenance": {
