@@ -2,66 +2,74 @@
 
 ## Version 0.1.0
 
-Release Date: 2026-03-31
+Release Date: 2026-04-16
 
 ### Overview
 
-This is the initial release of `atlasctl`, a local-first scenario and proof atlas compiler for Rust-style repositories. This release provides a stable foundation for compiling repository metadata into a deterministic, queryable graph.
+This is the v0.1.0 release of `atlasctl`, a local-first scenario and proof atlas compiler for Rust-style repositories. This release transforms the tool from a static graph builder into a full review-time proof navigator, offering a deterministic, queryable graph, and deep operational features like impact analysis and drift detection.
 
 ### Features Implemented
 
 #### Core Functionality
 
-- **Graph Model**: Stable graph model with nodes and edges representing requirements, ADRs, scenarios, fixtures, commands, artifacts, and workspace crates
-- **Deterministic Compilation**: Reproducible atlas generation from repository metadata
-- **Fragment Discovery**: YAML fragment discovery from `atlas/` directory
-- **Frontmatter Parsing**: Markdown frontmatter parsing for embedded metadata
-- **Workspace Crate Discovery**: Automatic discovery of Rust workspace crates
+- **Graph Model**: Stable graph model with nodes and edges representing requirements, ADRs, scenarios, fixtures, commands, artifacts, and workspace crates.
+- **Deterministic Compilation**: Reproducible atlas generation from repository metadata with strict path normalization (forward slashes, repo-relative paths only).
+- **Fragment Discovery**: YAML fragment discovery from `atlas/` directory.
+- **Frontmatter Parsing**: Markdown frontmatter parsing for embedded metadata.
+- **Workspace Crate Discovery**: Automatic discovery of Rust workspace crates.
+- **Owner Overlays**: Parses `CODEOWNERS` to map reviewers directly to impacted atlas nodes.
 
-#### Validation
+#### Validation and Self-Policing
 
-- **Validation Profiles**: Three validation profiles (default, ci, strict)
-- **Diagnostic Messages**: Clear, actionable diagnostic messages for validation failures
-- **Reference Validation**: Validation of node-to-node references and edge integrity
+- **Validation Profiles**: Three validation profiles (default, ci, strict).
+- **Diagnostic Messages**: Clear, actionable diagnostic messages for validation failures.
+- **Doctor Command**: Built-in drift detection (`dead_selector`, `orphan_node`, `stale_command`, `duplicate_ownership`).
 
-#### Query and Trace
+#### Operational Workflows
 
-- **Query API**: Search nodes by ID pattern and kind
-- **Trace API**: Trace relationships in both directions with configurable depth
-- **Deterministic Ordering**: Stable, predictable output ordering for all operations
+- **Impact Analysis**: Review-time workflow tool that maps a diff to behavior, proof surfaces, and docs. Identifies uncovered changed paths.
+- **Semantic Navigation (Why)**: Projects a short, readable proof chain for any node or path.
+- **Query and Trace**: Search nodes by ID/pattern and trace relationships in both directions with configurable depth.
 
 #### Rendering
 
-- **JSON Output**: Machine-readable `atlas.json` with stable schema
-- **Markdown Output**: Human-readable `atlas.md` with formatted sections
-- **Schema Definition**: JSON schema for validation and tooling integration
+- **JSON Output**: Machine-readable outputs with stable schemas for `build`, `doctor`, `why`, and `impacted` commands.
+- **Markdown Output**: Human-readable `atlas.md` with formatted sections and dossiers.
+- **GitHub Summary**: Optimized markdown projection (`--format gh-summary`) for CI step summaries.
 
-#### CLI
+#### Adoption Scaffolding
 
-- **Build Command**: Compile atlas from repository metadata
-- **Check Command**: Validate atlas against profiles
-- **Query Command**: Search and query nodes
-- **Trace Command**: Trace relationships between nodes
-- **Export Command**: Export atlas in various formats
-- **Exit Codes**: Standardized exit codes for automation
+- **Init Command**: Generates starter `atlas.toml` to bootstrap new repositories.
+- **Scaffold Command**: Generates valid YAML stubs for scenarios, artifacts, and requirements.
 
 ### Commands
 
 ```bash
+# Bootstrap a repository
+atlasctl init
+atlasctl scaffold scenario my-new-feature
+
 # Build the atlas
 atlasctl build [--out-dir DIR] [--repo-root PATH] [--config PATH]
 
-# Check validation
-atlasctl check [--profile default|ci|strict] [--format text|json]
+# Check validation and drift
+atlasctl check [--profile default|ci|strict] [--format text|json|gh-summary]
+atlasctl doctor [--format text|json|gh-summary]
+
+# Review-time impact analysis
+atlasctl impacted [--base main --head HEAD] [--paths file.rs] [--format text|json|gh-summary]
+
+# Get a proof chain
+atlasctl why <id-or-path> [--path] [--format text|json|gh-summary]
 
 # Query nodes
-atlasctl query <needle> [--kind KIND] [--repo-root PATH]
+atlasctl query <needle> [--kind KIND]
 
 # Trace relationships
 atlasctl trace <start> [--direction outgoing|incoming|both] [--max-depth N]
 
 # Export formats
-atlasctl export --format json|markdown [--out PATH]
+atlasctl export --format json|markdown|gh-summary [--out PATH]
 ```
 
 ### Installation
@@ -72,33 +80,22 @@ cargo build --release
 
 # The binary will be at target/release/atlasctl
 ```
-
-### Documentation
-
-- [Architecture](docs/architecture.md) - System architecture and design principles
-- [Design](docs/design.md) - Detailed design decisions
-- [Requirements](docs/requirements.md) - Project requirements
-- [Testing Strategy](docs/testing-strategy.md) - Testing methodology
-- [Metadata Conventions](docs/metadata-conventions.md) - How to write atlas metadata
-- [Mission and Vision](docs/mission-and-vision.md) - Project goals
-- [Non-goals](docs/non-goals.md) - What this project explicitly does not do
-- [Tasks](docs/tasks.md) - Task breakdown and tracking
-- [ADRs](docs/adr/) - Architecture Decision Records
+Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 ### Test Coverage
 
-- **75 tests** across all crates
+- **111+ tests** across all crates
 - **BDD tests**: Scenario-based tests validating graph semantics
 - **Property tests**: Proptest-based tests for determinism and integrity
-- **Golden file tests**: Snapshot tests for JSON and Markdown output
-- **CLI integration tests**: End-to-end command validation
+- **Golden file tests**: Snapshot tests for JSON, Markdown, and GH summaries
+- **CLI integration tests**: End-to-end command validation for all workflows
 
 ### Self-Dogfooding
 
 The project successfully uses `atlasctl` to track its own behavior:
 
-- **31 nodes** representing requirements, scenarios, ADRs, fixtures, commands, and artifacts
-- **24 edges** representing relationships between nodes
+- **34 nodes** representing requirements, scenarios, ADRs, fixtures, commands, and artifacts
+- **38 edges** representing relationships between nodes
 - **0 diagnostics** - clean validation
 
 ### Known Limitations
@@ -107,35 +104,16 @@ The project successfully uses `atlasctl` to track its own behavior:
 2. **Local-only**: No remote service integration or distributed discovery
 3. **Manual metadata**: Requires explicit metadata declarations; does not infer from code
 4. **Single format**: YAML fragments and markdown frontmatter only (no TOML or JSON fragments yet)
-5. **No impact analysis**: Cannot yet analyze the impact of changes across the graph
-6. **No cross-tool integration**: No integration with other tools or services
+5. **No cross-tool integration**: No integrations with other tools or services
 
 ### Future Roadmap
 
-#### Short-term (Post-0.1.0)
-
+- Advanced diffing and atlas snapshot comparison
+- Enhanced query syntax (filters, sorting, projections)
 - Additional fragment formats (TOML, JSON)
-- Enhanced query syntax (filters, sorting)
-- More validation rules and profiles
+- IDE integration support
 - Performance optimizations for large repositories
-
-#### Medium-term
-
-- Impact analysis capabilities
-- Cross-repo atlas composition
-- Additional output formats (HTML, Graphviz)
-- Plugin system for custom discovery adapters
-
-#### Long-term
-
-- Cross-tool integration (CI/CD, documentation generators)
-- Remote service support for distributed teams
-- AI-assisted metadata suggestions
-- Web-based atlas visualization
-
-### Migration Guide
-
-This is the initial release, so no migration is needed. Future releases will document any breaking changes and migration paths.
+- Additional output formats (HTML, Graphviz, DOT)
 
 ### Release Bar
 
@@ -144,28 +122,16 @@ Before tagging a release:
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- `cargo run -p atlasctl-cli -- build`
-- `cargo run -p atlasctl-cli -- check --profile ci`
+- `cargo run -p xtask -- mutants` (mutation testing against diff-critical paths)
+- Path portability checks pass (no absolute or machine-local path leakage)
+- `cargo run -p atlasctl-cli -- check --profile ci` (Zero-warning self-atlas)
 
 ### Versioning
 
 - Bump schema only when the canonical JSON contract changes materially
 - Document node kind, edge kind, or profile changes in ADRs
-- Keep output ordering stable
 - Follow semantic versioning (MAJOR.MINOR.PATCH)
-
-### Artifacts
-
-The first public artifact is source plus tags. Prebuilt binaries can come later with `cargo-dist`.
-
-### Contributing
-
-Contributions are welcome! See [AGENTS.md](AGENTS.md) for guidelines on where to make changes and how to structure contributions.
 
 ### License
 
 MIT License - see [LICENSE](LICENSE) file for details.
-
-### Acknowledgments
-
-This project was developed to address the challenge of making repository knowledge explicit and queryable, enabling better collaboration between humans and AI agents.

@@ -95,7 +95,9 @@ fn docs_check() -> Result<(), String> {
 }
 
 fn release_check() -> Result<(), String> {
-    ci_full()
+    ci_full()?;
+    mutants()?;
+    Ok(())
 }
 
 fn run(command: &str, args: &[&str]) -> Result<(), String> {
