@@ -1,13 +1,16 @@
 #![forbid(unsafe_code)]
 
 use atlasctl_codes::DiagnosticCode;
-use atlasctl_ports::{DiscoverRequest, DiscoveryError, DiscoveryPort};
+use atlasctl_ports::{
+    DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
+};
 use atlasctl_types::{
     AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, EdgeKind,
-    NodeKind, PathSelector, Provenance, RepoDescriptor,
+    NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::MetadataCommand;
+use globset::Glob;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,6 +67,8 @@ impl DiscoveryPort for FsDiscovery {
         diagnostics.extend(crate_result.diagnostics);
         nodes.extend(crate_result.nodes);
 
+        validate_selectors(&repo_root, &nodes, &mut diagnostics);
+
         nodes.sort_by(|left, right| left.id.cmp(&right.id));
         edges.sort_by(|left, right| {
             left.from
@@ -79,6 +84,106 @@ impl DiscoveryPort for FsDiscovery {
             edges,
             diagnostics,
         })
+    }
+}
+
+pub struct GitDiff;
+
+impl DiffPort for GitDiff {
+    fn changed_paths(
+        &self,
+        repo_root: &Utf8Path,
+        base: &str,
+        head: &str,
+    ) -> Result<Vec<atlasctl_types::ChangedPath>, DiffError> {
+        let output = std::process::Command::new("git")
+            .current_dir(repo_root)
+            .args(["diff", "--name-only", base, head])
+            .output()
+            .map_err(|err| DiffError::Message(format!("failed to run git: {err}")))?;
+
+        if !output.status.success() {
+            return Err(DiffError::Message(format!(
+                "git diff failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let paths = stdout
+            .lines()
+            .map(|line| atlasctl_types::ChangedPath {
+                path: atlasctl_types::RepoRelativePath::new(line),
+            })
+            .collect();
+
+        Ok(paths)
+    }
+}
+
+pub struct Codeowners;
+
+impl OwnersPort for Codeowners {
+    fn owners(
+        &self,
+        repo_root: &Utf8Path,
+        paths: &[atlasctl_types::RepoRelativePath],
+    ) -> Result<
+        std::collections::BTreeMap<atlasctl_types::RepoRelativePath, Vec<String>>,
+        OwnersError,
+    > {
+        let owners_file = repo_root.join("CODEOWNERS");
+        let github_owners = repo_root.join(".github/CODEOWNERS");
+
+        let path = if owners_file.exists() {
+            owners_file
+        } else if github_owners.exists() {
+            github_owners
+        } else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+
+        let content = fs::read_to_string(&path)
+            .map_err(|err| OwnersError::Message(format!("failed to read CODEOWNERS: {err}")))?;
+
+        let mut rules = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let parts: Vec<_> = line.split_whitespace().collect();
+            if parts.len() < 2 {
+                continue;
+            }
+
+            let pattern = parts[0];
+            let owners: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+            let glob = match Glob::new(pattern) {
+                Ok(g) => g.compile_matcher(),
+                Err(_) => continue,
+            };
+
+            rules.push((glob, owners));
+        }
+
+        let mut result = std::collections::BTreeMap::new();
+        for repo_path in paths {
+            let mut matched_owners = Vec::new();
+            // CODEOWNERS matches last-rule-wins usually, or we can collect all
+            for (glob, owners) in &rules {
+                if glob.is_match(repo_path.as_str()) {
+                    matched_owners = owners.clone();
+                }
+            }
+            if !matched_owners.is_empty() {
+                result.insert(repo_path.clone(), matched_owners);
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -160,10 +265,10 @@ fn collect_candidate_files(
         }
 
         if abs_root.is_file() {
-            if let Some(rel) = relative_path(repo_root, &abs_root) {
-                if !is_ignored(&rel, ignored) {
-                    files.insert(rel);
-                }
+            if let Some(rel) = relative_path(repo_root, &abs_root)
+                && !is_ignored(&rel, ignored)
+            {
+                files.insert(rel);
             }
             continue;
         }
@@ -199,6 +304,7 @@ fn is_ignored(path: &Utf8Path, ignored: &[String]) -> bool {
         .any(|component| ignored.iter().any(|ignored| component.as_str() == ignored))
 }
 
+#[derive(Debug)]
 enum FileKind {
     Fragment,
     Markdown,
@@ -272,7 +378,7 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::MalformedFragment,
-                format!("failed to parse fragment `{}`: {err}", rel_path),
+                format!("failed to parse fragment `{}`: {}", rel_path, err),
                 None,
                 Some(location(rel_path)),
             ));
@@ -292,6 +398,15 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
             Ok(edge) => batch.edges.push(edge),
             Err(diagnostic) => batch.diagnostics.push(diagnostic),
         }
+    }
+
+    if batch.nodes.is_empty() && batch.edges.is_empty() {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::EmptyFragment,
+            format!("fragment file `{}` contains no atlas metadata", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
     }
 
     batch
@@ -454,7 +569,7 @@ fn push_frontmatter_edge(
             from,
             kind,
             to,
-            provenance: Provenance::new(rel_path.to_path_buf()),
+            provenance: Provenance::new(RepoRelativePath::new(rel_path.as_str())),
         }),
         _ => batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::InvalidId,
@@ -488,7 +603,7 @@ fn parse_node(
         )
     })?;
 
-    let mut provenance = Provenance::new(rel_path.to_path_buf());
+    let mut provenance = Provenance::new(RepoRelativePath::new(rel_path.as_str()));
     provenance.fragment = fragment;
 
     Ok(AtlasNode {
@@ -534,7 +649,7 @@ fn parse_edge(
         )
     })?;
 
-    let mut provenance = Provenance::new(rel_path.to_path_buf());
+    let mut provenance = Provenance::new(RepoRelativePath::new(rel_path.as_str()));
     provenance.fragment = fragment;
 
     Ok(AtlasEdge {
@@ -543,6 +658,94 @@ fn parse_edge(
         to,
         provenance,
     })
+}
+
+fn validate_selectors(
+    repo_root: &Utf8Path,
+    nodes: &[AtlasNode],
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+) {
+    let mut all_paths = Vec::new();
+    for entry in WalkDir::new(repo_root) {
+        let Ok(entry) = entry else { continue };
+        if let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf())
+            && let Some(rel) = relative_path(repo_root, &path)
+        {
+            all_paths.push(rel);
+        }
+    }
+
+    let mut file_owners: BTreeMap<String, Vec<AtlasId>> = BTreeMap::new();
+
+    for node in nodes {
+        for selector in &node.paths {
+            let pattern = RepoRelativePath::new(selector.pattern.clone());
+            let glob = match Glob::new(pattern.as_str()) {
+                Ok(glob) => glob.compile_matcher(),
+                Err(err) => {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::InvalidPath,
+                        format!(
+                            "invalid path selector pattern `{}`: {}",
+                            selector.pattern, err
+                        ),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
+                    continue;
+                }
+            };
+
+            let mut matched = false;
+            for path in &all_paths {
+                // Ensure we compare with forward slashes
+                let path_str = path.as_str().replace('\\', "/");
+                if glob.is_match(&path_str) {
+                    matched = true;
+                    file_owners
+                        .entry(path_str.clone())
+                        .or_default()
+                        .push(node.id.clone());
+                }
+            }
+
+            if !matched {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::DeadSelector,
+                    format!("path selector `{}` matches no files", selector.pattern),
+                    Some(node.id.clone()),
+                    Some(node.provenance.location()),
+                ));
+            }
+        }
+    }
+
+    for (file, owners) in file_owners {
+        if owners.len() > 1 {
+            let mut unique_owners = owners.clone();
+            unique_owners.sort();
+            unique_owners.dedup();
+
+            if unique_owners.len() > 1 {
+                for owner in &unique_owners {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::DuplicateOwnership,
+                        format!(
+                            "path `{}` is claimed by multiple nodes: {}",
+                            file,
+                            unique_owners
+                                .iter()
+                                .map(|id| id.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        Some(owner.clone()),
+                        None,
+                    ));
+                }
+            }
+        }
+    }
 }
 
 fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
@@ -607,12 +810,12 @@ fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
             .unwrap_or_else(|| Utf8PathBuf::from("Cargo.toml"));
 
         // Normalize to forward slashes for cross-platform deterministic output
-        let manifest_path_normalized = rel_manifest_path.as_str().replace('\\', "/");
+        let manifest_path_normalized = RepoRelativePath::new(rel_manifest_path.as_str());
 
         let mut attrs = BTreeMap::new();
         attrs.insert(
             "manifest_path".to_string(),
-            Value::String(manifest_path_normalized),
+            Value::String(manifest_path_normalized.to_string()),
         );
         attrs.insert(
             "version".to_string(),
@@ -626,7 +829,7 @@ fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
             summary: None,
             paths: vec![PathSelector::new(rel_dir.as_str())],
             attrs,
-            provenance: Provenance::new(Utf8PathBuf::from("Cargo.toml")),
+            provenance: Provenance::new(RepoRelativePath::new("Cargo.toml")),
         });
     }
 
@@ -642,7 +845,7 @@ fn relative_path(repo_root: &Utf8Path, abs_path: &Utf8Path) -> Option<Utf8PathBu
 
 fn location(path: &Utf8Path) -> atlasctl_types::SourceLocation {
     atlasctl_types::SourceLocation {
-        path: path.to_path_buf(),
+        path: RepoRelativePath::new(path.as_str()),
         line: None,
         column: None,
     }

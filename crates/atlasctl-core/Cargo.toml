@@ -8,6 +8,7 @@ authors.workspace = true
 [dependencies]
 atlasctl-codes = { path = "../atlasctl-codes" }
 atlasctl-types = { path = "../atlasctl-types" }
+globset.workspace = true
 
 [dev-dependencies]
 atlasctl-discover-fs = { path = "../atlasctl-discover-fs" }
@@ -17,3 +18,4 @@ atlasctl-fixtures = { path = "../atlasctl-fixtures" }
 camino.workspace = true
 insta.workspace = true
 proptest.workspace = true
+serde_json.workspace = true

@@ -16,7 +16,7 @@ expression: json_output
       "summary": null,
       "paths": [
         {
-          "pattern": "crates\\engine"
+          "pattern": "crates/engine"
         }
       ],
       "attrs": {
@@ -37,12 +37,12 @@ expression: json_output
       "summary": null,
       "paths": [
         {
-          "pattern": "docs\\guide.md"
+          "pattern": "docs/guide.md"
         }
       ],
       "attrs": {},
       "provenance": {
-        "source": "docs\\guide.md",
+        "source": "docs/guide.md",
         "line": null,
         "column": null,
         "fragment": "guide:frontmatter-guide"
@@ -57,7 +57,29 @@ expression: json_output
       "message": "edge `guide:frontmatter-guide` -> `req:frontmatter` references missing target node `req:frontmatter`",
       "subject": "req:frontmatter",
       "location": {
-        "path": "docs\\guide.md",
+        "path": "docs/guide.md",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `crate:engine` has no relationships in the graph",
+      "subject": "crate:engine",
+      "location": {
+        "path": "Cargo.toml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `guide:frontmatter-guide` has no relationships in the graph",
+      "subject": "guide:frontmatter-guide",
+      "location": {
+        "path": "docs/guide.md",
         "line": null,
         "column": null
       }
@@ -66,8 +88,8 @@ expression: json_output
   "metrics": {
     "node_count": 2,
     "edge_count": 0,
-    "diagnostic_count": 1,
+    "diagnostic_count": 3,
     "error_count": 1,
-    "warning_count": 0
+    "warning_count": 2
   }
 }

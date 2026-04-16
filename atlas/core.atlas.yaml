@@ -9,6 +9,11 @@ nodes:
     title: Queryable proof topology
     summary: The repo should expose its behavior and proof surfaces through query and trace operations.
 
+  - id: req:low-metadata-tax
+    kind: requirement
+    title: Low metadata tax
+    summary: Adopting and maintaining the atlas should be low-friction via scaffolding and automation.
+
   - id: scen:build-emits-canonical-atlas
     kind: scenario
     title: Build emits canonical atlas
@@ -28,9 +33,16 @@ nodes:
     kind: scenario
     title: Query and trace navigate behavior
     summary: Query and trace expose the atlas as a navigation layer.
-    paths:
-      - crates/atlasctl-core/src/lib.rs
-      - crates/atlasctl-cli/src/main.rs
+
+  - id: scen:automated-scaffolding-reduces-friction
+    kind: scenario
+    title: Automated scaffolding reduces friction
+    summary: The init and scaffold commands generate valid atlas metadata.
+
+  - id: scen:full-release-verification
+    kind: scenario
+    title: Full release verification
+    summary: The ci-full task ensures all repo standards are met before release.
 
 edges:
   - from: scen:build-emits-canonical-atlas
@@ -44,6 +56,14 @@ edges:
   - from: scen:query-and-trace-navigate-behavior
     kind: proves
     to: req:queryable-proof-topology
+
+  - from: scen:automated-scaffolding-reduces-friction
+    kind: proves
+    to: req:low-metadata-tax
+
+  - from: scen:full-release-verification
+    kind: proves
+    to: req:deterministic-atlas
 
   - from: scen:build-emits-canonical-atlas
     kind: emits
@@ -72,3 +92,39 @@ edges:
   - from: scen:query-and-trace-navigate-behavior
     kind: exercises
     to: crate:atlasctl-cli
+
+  - from: scen:automated-scaffolding-reduces-friction
+    kind: exercises
+    to: crate:atlasctl-cli
+
+  - from: scen:automated-scaffolding-reduces-friction
+    kind: exercises
+    to: crate:atlasctl-app
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:xtask
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:atlasctl-app
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:atlasctl-types
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:atlasctl-codes
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:atlasctl-ports
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:atlasctl-discover-fs
+
+  - from: scen:full-release-verification
+    kind: exercises
+    to: crate:atlasctl-fixtures

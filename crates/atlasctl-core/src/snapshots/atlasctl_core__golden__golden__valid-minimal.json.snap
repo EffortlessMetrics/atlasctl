@@ -16,12 +16,12 @@ expression: json_output
       "summary": null,
       "paths": [
         {
-          "pattern": "docs\\adr\\0001-example.md"
+          "pattern": "docs/adr/0001-example.md"
         }
       ],
       "attrs": {},
       "provenance": {
-        "source": "docs\\adr\\0001-example.md",
+        "source": "docs/adr/0001-example.md",
         "line": null,
         "column": null,
         "fragment": "adr:0001-example"
@@ -35,7 +35,7 @@ expression: json_output
       "paths": [],
       "attrs": {},
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -49,7 +49,7 @@ expression: json_output
       "paths": [],
       "attrs": {},
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -62,7 +62,7 @@ expression: json_output
       "summary": null,
       "paths": [
         {
-          "pattern": "crates\\engine"
+          "pattern": "crates/engine"
         }
       ],
       "attrs": {
@@ -84,7 +84,7 @@ expression: json_output
       "paths": [],
       "attrs": {},
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -102,7 +102,7 @@ expression: json_output
       ],
       "attrs": {},
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -115,7 +115,7 @@ expression: json_output
       "kind": "explains",
       "to": "req:example",
       "provenance": {
-        "source": "docs\\adr\\0001-example.md",
+        "source": "docs/adr/0001-example.md",
         "line": null,
         "column": null,
         "fragment": null
@@ -126,7 +126,7 @@ expression: json_output
       "kind": "proves",
       "to": "req:example",
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -137,7 +137,7 @@ expression: json_output
       "kind": "runs_with",
       "to": "cmd:ci-fast",
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -148,7 +148,7 @@ expression: json_output
       "kind": "emits",
       "to": "artifact:example-report",
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -159,7 +159,7 @@ expression: json_output
       "kind": "exercises",
       "to": "crate:engine",
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null

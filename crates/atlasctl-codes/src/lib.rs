@@ -45,6 +45,12 @@ pub enum DiagnosticCode {
     InvalidConfig,
     DiscoveryFailure,
     QueryRootMissing,
+    DeadSelector,
+    OrphanNode,
+    StaleCommand,
+    BrokenDocLink,
+    DuplicateOwnership,
+    EmptyFragment,
 }
 
 impl DiagnosticCode {
@@ -65,6 +71,12 @@ impl DiagnosticCode {
             Self::InvalidConfig => "invalid_config",
             Self::DiscoveryFailure => "discovery_failure",
             Self::QueryRootMissing => "query_root_missing",
+            Self::DeadSelector => "dead_selector",
+            Self::OrphanNode => "orphan_node",
+            Self::StaleCommand => "stale_command",
+            Self::BrokenDocLink => "broken_doc_link",
+            Self::DuplicateOwnership => "duplicate_ownership",
+            Self::EmptyFragment => "empty_fragment",
         }
     }
 
@@ -85,6 +97,12 @@ impl DiagnosticCode {
             Self::InvalidConfig => "invalid atlas configuration",
             Self::DiscoveryFailure => "discovery failed",
             Self::QueryRootMissing => "requested trace root is missing",
+            Self::DeadSelector => "path selector matches no files",
+            Self::OrphanNode => "node has no relationships",
+            Self::StaleCommand => "command is not exercised by any scenario",
+            Self::BrokenDocLink => "documentation link is broken",
+            Self::DuplicateOwnership => "path is claimed by multiple nodes",
+            Self::EmptyFragment => "fragment file contains no atlas metadata",
         }
     }
 
@@ -92,6 +110,10 @@ impl DiagnosticCode {
         match self {
             Self::InvalidPath => Severity::Warning,
             Self::ArtifactMissingProducer => Severity::Warning,
+            Self::DeadSelector => Severity::Warning,
+            Self::OrphanNode => Severity::Warning,
+            Self::StaleCommand => Severity::Warning,
+            Self::EmptyFragment => Severity::Info,
             _ => Severity::Error,
         }
     }

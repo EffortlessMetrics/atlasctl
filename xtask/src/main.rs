@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::env;
-use std::process::{exit, Command};
+use std::process::{Command, exit};
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -14,6 +14,8 @@ fn main() {
         "ci-fast" => ci_fast(),
         "ci-full" => ci_full(),
         "smoke" => smoke(),
+        "golden" => golden(),
+        "mutants" => mutants(),
         "docs-check" => docs_check(),
         "release-check" => release_check(),
         other => Err(format!("unknown task `{other}`")),
@@ -66,6 +68,14 @@ fn smoke() -> Result<(), String> {
         ],
     )?;
     Ok(())
+}
+
+fn golden() -> Result<(), String> {
+    run("cargo", &["insta", "test", "--accept"])
+}
+
+fn mutants() -> Result<(), String> {
+    run("cargo", &["mutants", "-d", "crates/atlasctl-core"])
 }
 
 fn docs_check() -> Result<(), String> {

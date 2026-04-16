@@ -10,21 +10,21 @@ expression: md_output
 - Tool version: `0.1.0`
 - Nodes: `2`
 - Edges: `0`
-- Diagnostics: `1` (errors: `1`, warnings: `0`)
+- Diagnostics: `3` (errors: `1`, warnings: `2`)
 
 ## Nodes by kind
 
 ### guide
 
 - `guide:frontmatter-guide` — Frontmatter guide
-  - Source: `docs\guide.md`
-  - Paths: `docs\guide.md`
+  - Source: `docs/guide.md`
+  - Paths: `docs/guide.md`
 
 ### crate
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Paths: `crates\engine`
+  - Paths: `crates/engine`
 
 ## Edges
 
@@ -33,4 +33,10 @@ expression: md_output
 
 - [error] `broken_reference` — edge `guide:frontmatter-guide` -> `req:frontmatter` references missing target node `req:frontmatter`
   - Subject: `req:frontmatter`
-  - Location: `docs\guide.md`
+  - Location: `docs/guide.md`
+- [warning] `orphan_node` — node `crate:engine` has no relationships in the graph
+  - Subject: `crate:engine`
+  - Location: `Cargo.toml`
+- [warning] `orphan_node` — node `guide:frontmatter-guide` has no relationships in the graph
+  - Subject: `guide:frontmatter-guide`
+  - Location: `docs/guide.md`

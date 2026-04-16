@@ -54,10 +54,22 @@ cargo build --release
 
 ### Prerequisites
 
-- Rust 1.75 or later
+- Rust 1.92 or later
 - Cargo (included with Rust)
 
 ## Usage
+
+### Onboarding a repo
+
+Bootstrap a new atlas for a repository:
+
+```bash
+# Initialize atlas.toml
+atlasctl init
+
+# Scaffold a new scenario
+atlasctl scaffold scenario my-new-feature
+```
 
 ### Build the atlas
 
@@ -73,55 +85,47 @@ By default, outputs are written to `.atlas/` directory. Use `--out-dir` to custo
 atlasctl build --out-dir ./output
 ```
 
-### Check validation
+### Self-policing with `doctor`
 
-Validate the atlas against a profile:
+Check for atlas drift and maintenance issues:
 
 ```bash
-# Default profile
-atlasctl check
+# Run diagnostics
+atlasctl doctor
 
-# CI profile (stricter validation)
-atlasctl check --profile ci
-
-# Strict profile
-atlasctl check --profile strict
-
-# Output as JSON
-atlasctl check --format json
+# Output as JSON for CI integration
+atlasctl doctor --format json
 ```
 
-### Query nodes
+### Query and Trace
 
-Search for nodes by ID or pattern:
+Navigate the atlas graph:
 
 ```bash
-# Query by scenario ID
-atlasctl query scen:build-emits-canonical-atlas
-
-# Query with specific kind filter
+# Search for nodes
 atlasctl query "build" --kind scenario
 
-# Query by requirement ID
-atlasctl query req:deterministic-atlas
-```
-
-### Trace relationships
-
-Trace relationships from a starting node:
-
-```bash
-# Trace outgoing edges (what this node references)
+# Trace relationships
 atlasctl trace req:deterministic-atlas --direction outgoing
 
-# Trace incoming edges (what references this node)
-atlasctl trace req:deterministic-atlas --direction incoming
+# Get a "Why" proof chain for a node or path
+atlasctl why scen:example-build
+atlasctl why --path crates/engine/src/lib.rs
+```
 
-# Trace both directions (default)
-atlasctl trace req:deterministic-atlas --direction both
+### Review-time impact analysis
 
-# Limit trace depth
-atlasctl trace req:deterministic-atlas --max-depth 3
+Map a diff to behavior and proof surfaces:
+
+```bash
+# Impact of local changes vs main
+atlasctl impacted --base main --head HEAD
+
+# Impact of specific paths
+atlasctl impacted --paths crates/foo/src/lib.rs docs/adr/0002.md
+
+# CI summary output
+atlasctl impacted --format gh-summary
 ```
 
 ### Export formats
@@ -132,26 +136,8 @@ Export the atlas in specific formats:
 # Export as JSON
 atlasctl export --format json
 
-# Export as Markdown
-atlasctl export --format markdown
-
-# Specify output file
-atlasctl export --format json --out ./my-atlas.json
-```
-
-### Common options
-
-All commands support these common options:
-
-```bash
-# Specify repository root (default: current directory)
-atlasctl build --repo-root /path/to/repo
-
-# Use custom config file
-atlasctl build --config /path/to/atlas.toml
-
-# Set validation profile
-atlasctl check --profile ci
+# Export as GitHub Step Summary
+atlasctl export --format gh-summary
 ```
 
 ## Repository shape
@@ -159,8 +145,8 @@ atlasctl check --profile ci
 The workspace is split into:
 
 - `atlasctl-core` for graph assembly, validation, query, and trace
-- `atlasctl-discover-fs` for repo-local discovery
-- `atlasctl-render` for JSON and Markdown projections
+- `atlasctl-discover-fs` for repo-local discovery and git integration
+- `atlasctl-render` for JSON, Markdown, and CI-optimized projections
 - `atlasctl-app` for orchestration
 - `atlasctl-cli` for the operator surface
 - `atlasctl-types` for shared type definitions
@@ -172,18 +158,16 @@ The atlas uses explicit metadata first. It does not try to infer the repo's mean
 
 ## Current status
 
-This repository is a vertical slice:
+This repository provides a complete operational core:
 
-- graph model
-- deterministic compilation
-- fragment and frontmatter discovery
-- workspace crate discovery
-- validation profiles
-- query and trace
-- JSON and Markdown output
-- docs and fixture repos
-
-That is enough to dogfood on this repo and to extend later with impact analysis and cross-tool integration.
+- deterministic graph model
+- filesystem discovery with frontmatter support
+- owner propagation from `CODEOWNERS`
+- review-time impact analysis
+- drift detection (`doctor`)
+- semantic navigation (`why`)
+- CI-optimized outputs (GitHub summaries)
+- scaffolding tools (`init`, `scaffold`)
 
 ## Documentation
 
@@ -192,9 +176,6 @@ That is enough to dogfood on this repo and to extend later with impact analysis 
 - [Requirements](docs/requirements.md) - Project requirements
 - [Testing Strategy](docs/testing-strategy.md) - How testing is structured
 - [Metadata Conventions](docs/metadata-conventions.md) - How to write atlas metadata
-- [Mission and Vision](docs/mission-and-vision.md) - Project goals
-- [Non-goals](docs/non-goals.md) - What this project explicitly does not do
-- [Tasks](docs/tasks.md) - Task breakdown and tracking
 - [ADRs](docs/adr/) - Architecture Decision Records
 
 ## Development
@@ -202,53 +183,15 @@ That is enough to dogfood on this repo and to extend later with impact analysis 
 ### Development setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/EffortlessMetrics/atlasctl.git
-cd atlasctl
-
-# Install development dependencies (optional, for xtask)
-cargo install --path xtask
-
 # Run tests
 cargo test --workspace
 
 # Run CI checks
 cargo run -p xtask -- ci-fast
 cargo run -p xtask -- ci-full
-```
 
-### Development commands
-
-```bash
-# Format code
-cargo fmt
-
-# Check formatting
-cargo fmt --check
-
-# Run linter
-cargo clippy --workspace --all-targets -- -D warnings
-
-# Build all crates
-cargo build --workspace
-
-# Build release binary
-cargo build --release
-
-# Run tests
-cargo test --workspace
-
-# Run specific test
-cargo test --package atlasctl-core test_name
-
-# Update golden files (after intentional changes)
-cargo test --package atlasctl-core -- --accept
-
-# Run smoke tests
-cargo run -p xtask -- smoke
-
-# Check documentation
-cargo run -p xtask -- docs-check
+# Run mutation testing
+cargo run -p xtask -- mutants
 ```
 
 ### Self-dogfooding
@@ -262,13 +205,9 @@ cargo run -p atlasctl-cli -- build
 # Check validation
 cargo run -p atlasctl-cli -- check --profile ci
 
-# Query the atlas
-cargo run -p atlasctl-cli -- query scen:build-emits-canonical-atlas
+# Analyze impact of your changes
+cargo run -p atlasctl-cli -- impacted --base main
 ```
-
-## Contributing
-
-This repository is shaped for delegation. See [AGENTS.md](AGENTS.md) for guidelines on where to make changes.
 
 ## License
 

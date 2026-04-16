@@ -1,0 +1,68 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: doctor-drift
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `6`
+- Edges: `2`
+- Diagnostics: `6` (errors: `0`, warnings: `5`)
+
+## Nodes by kind
+
+### requirement
+
+- `req:dead` — Dead selector
+  - Source: `atlas/drift.atlas.yaml`
+  - Paths: `nonexistent/*`
+
+- `req:orphan` — Orphan node
+  - Source: `atlas/drift.atlas.yaml`
+
+### scenario
+
+- `scen:valid` — Valid scenario
+  - Source: `atlas/drift.atlas.yaml`
+
+### command
+
+- `cmd:ci` — CI command
+  - Source: `atlas/drift.atlas.yaml`
+
+- `cmd:stale` — Stale command
+  - Source: `atlas/drift.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Paths: `crates/engine`
+
+## Edges
+
+- `scen:valid` --runs_with--> `cmd:ci`
+- `scen:valid` --exercises--> `crate:engine`
+
+## Diagnostics
+
+- [warning] `dead_selector` — path selector `nonexistent/*` matches no files
+  - Subject: `req:dead`
+  - Location: `atlas/drift.atlas.yaml`
+- [warning] `orphan_node` — node `cmd:stale` has no relationships in the graph
+  - Subject: `cmd:stale`
+  - Location: `atlas/drift.atlas.yaml`
+- [warning] `orphan_node` — node `req:dead` has no relationships in the graph
+  - Subject: `req:dead`
+  - Location: `atlas/drift.atlas.yaml`
+- [warning] `orphan_node` — node `req:orphan` has no relationships in the graph
+  - Subject: `req:orphan`
+  - Location: `atlas/drift.atlas.yaml`
+- [warning] `stale_command` — command `cmd:stale` is not used by any scenario
+  - Subject: `cmd:stale`
+  - Location: `atlas/drift.atlas.yaml`
+- [info] `empty_fragment` — fragment file `atlas\empty.atlas.yaml` contains no atlas metadata
+  - Location: `atlas/empty.atlas.yaml`

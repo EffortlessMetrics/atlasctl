@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
 use atlasctl_ports::{RenderError, RenderPort};
-use atlasctl_types::{AtlasDiagnostic, AtlasGraph, AtlasNode, NodeKind, RenderFormat};
+use atlasctl_types::{
+    AtlasDiagnostic, AtlasGraph, AtlasNode, ImpactResponse, NodeKind, RenderFormat, WhyResponse,
+};
 
 #[derive(Debug, Default)]
 pub struct AtlasRenderer;
@@ -12,6 +14,36 @@ impl RenderPort for AtlasRenderer {
             RenderFormat::Json => serde_json::to_string_pretty(graph)
                 .map_err(|err| RenderError::Message(format!("failed to render JSON: {err}"))),
             RenderFormat::Markdown => Ok(render_markdown(graph)),
+            RenderFormat::GitHubSummary => Ok(render_gh_summary(graph)),
+        }
+    }
+
+    fn render_why(
+        &self,
+        response: &WhyResponse,
+        format: RenderFormat,
+    ) -> Result<String, RenderError> {
+        match format {
+            RenderFormat::Json => serde_json::to_string_pretty(response).map_err(|err| {
+                RenderError::Message(format!("failed to render why response as JSON: {err}"))
+            }),
+            RenderFormat::Markdown | RenderFormat::GitHubSummary => {
+                Ok(render_why_markdown(response))
+            }
+        }
+    }
+
+    fn render_impact(
+        &self,
+        response: &ImpactResponse,
+        format: RenderFormat,
+    ) -> Result<String, RenderError> {
+        match format {
+            RenderFormat::Json => serde_json::to_string_pretty(response).map_err(|err| {
+                RenderError::Message(format!("failed to render impact response as JSON: {err}"))
+            }),
+            RenderFormat::Markdown => Ok(render_impact_markdown(response)),
+            RenderFormat::GitHubSummary => Ok(render_impact_gh_summary(response)),
         }
     }
 }
@@ -72,6 +104,167 @@ fn render_markdown(graph: &AtlasGraph) -> String {
     } else {
         for diagnostic in &graph.diagnostics {
             render_diagnostic(diagnostic, &mut out);
+        }
+    }
+
+    out
+}
+
+fn render_impact_markdown(response: &ImpactResponse) -> String {
+    let mut out = String::new();
+
+    out.push_str("# Impact Analysis\n\n");
+
+    out.push_str("## Impacted Nodes\n\n");
+    if response.impacted.is_empty() {
+        out.push_str("_No nodes impacted._\n");
+    } else {
+        for hit in &response.impacted {
+            out.push_str(&format!(
+                "- `{}` ({}) — {}\n",
+                hit.node.id, hit.node.kind, hit.node.title
+            ));
+            out.push_str(&format!("  - Reason: {}\n", hit.reason));
+            if !hit.owners.is_empty() {
+                out.push_str(&format!("  - Owners: {}\n", hit.owners.join(", ")));
+            }
+        }
+    }
+
+    out.push_str("\n## Uncovered Changes\n\n");
+    if response.uncovered.is_empty() {
+        out.push_str("_All changes are covered by the atlas._\n");
+    } else {
+        for path in &response.uncovered {
+            out.push_str(&format!("- `{}`\n", path.path));
+        }
+    }
+
+    out
+}
+
+fn render_gh_summary(graph: &AtlasGraph) -> String {
+    let mut out = String::new();
+
+    out.push_str("### 🗺️ Atlas Summary\n\n");
+    out.push_str(&format!("- **Repository**: `{}`\n", graph.repo.name));
+    out.push_str(&format!(
+        "- **Inventory**: `{}` nodes, `{}` edges\n",
+        graph.metrics.node_count, graph.metrics.edge_count
+    ));
+
+    if graph.metrics.diagnostic_count > 0 {
+        let status = if graph.metrics.error_count > 0 {
+            "🔴 Failed"
+        } else {
+            "⚠️  Warning"
+        };
+        out.push_str(&format!(
+            "- **Status**: {} (`{}` errors, `{}` warnings)\n",
+            status, graph.metrics.error_count, graph.metrics.warning_count
+        ));
+
+        out.push_str("\n#### ⚠️ Top Diagnostics\n\n");
+        for diagnostic in graph.diagnostics.iter().take(5) {
+            out.push_str(&format!(
+                "- `{}` — {}\n",
+                diagnostic.code, diagnostic.message
+            ));
+        }
+    } else {
+        out.push_str("- **Status**: ✅ Healthy\n");
+    }
+
+    out
+}
+
+fn render_impact_gh_summary(response: &ImpactResponse) -> String {
+    let mut out = String::new();
+
+    out.push_str("### 🎯 Atlas Impact Analysis\n\n");
+
+    out.push_str(&format!(
+        "- **Impacted Behaviors**: `{}`\n",
+        response.impacted.len()
+    ));
+    out.push_str(&format!(
+        "- **Uncovered Changes**: `{}`\n",
+        response.uncovered.len()
+    ));
+
+    if !response.impacted.is_empty() {
+        out.push_str("\n#### 🧱 Impacted Proof Surface\n\n");
+        for hit in response.impacted.iter().take(10) {
+            let owners = if hit.owners.is_empty() {
+                "".to_string()
+            } else {
+                format!(" (👥 {})", hit.owners.join(", "))
+            };
+            out.push_str(&format!(
+                "- `{}` ({}) — {}{}\n",
+                hit.node.id, hit.node.kind, hit.node.title, owners
+            ));
+        }
+        if response.impacted.len() > 10 {
+            out.push_str(&format!(
+                "\n_... and {} more impacted nodes._\n",
+                response.impacted.len() - 10
+            ));
+        }
+    }
+
+    if !response.uncovered.is_empty() {
+        out.push_str("\n#### 🔍 Uncovered changed paths\n\n");
+        for path in response.uncovered.iter().take(5) {
+            out.push_str(&format!("- `{}`\n", path.path));
+        }
+        if response.uncovered.len() > 5 {
+            out.push_str(&format!(
+                "\n_... and {} more uncovered paths._\n",
+                response.uncovered.len() - 5
+            ));
+        }
+    }
+
+    out
+}
+
+fn render_why_markdown(response: &WhyResponse) -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!("# Why: `{}`\n\n", response.root.id));
+    out.push_str(&format!("- **Title**: {}\n", response.root.title));
+    out.push_str(&format!("- **Kind**: `{}`\n", response.root.kind));
+    out.push_str(&format!(
+        "- **Source**: `{}`\n",
+        response.root.provenance.source
+    ));
+
+    if let Some(summary) = &response.root.summary {
+        out.push_str(&format!("\n## Summary\n\n{}\n", summary));
+    }
+
+    if !response.root.paths.is_empty() {
+        out.push_str("\n## Paths\n\n");
+        for path in &response.root.paths {
+            out.push_str(&format!("- `{}`\n", path.pattern));
+        }
+    }
+
+    out.push_str("\n## Proof Chain\n\n");
+    if response.chain.is_empty() {
+        out.push_str("_No immediate proof chain found._\n");
+    } else {
+        for step in &response.chain {
+            let direction = match step.direction {
+                atlasctl_types::TraceDirection::Incoming => "is supported by",
+                atlasctl_types::TraceDirection::Outgoing => "is exercised by",
+                atlasctl_types::TraceDirection::Both => "relates to",
+            };
+            out.push_str(&format!(
+                "- `{}` {} `{}` (via `{}`)\n",
+                response.root.id, direction, step.node.id, step.relationship
+            ));
         }
     }
 

@@ -16,7 +16,7 @@ expression: json_output
       "summary": null,
       "paths": [
         {
-          "pattern": "crates\\engine"
+          "pattern": "crates/engine"
         }
       ],
       "attrs": {
@@ -38,7 +38,7 @@ expression: json_output
       "paths": [],
       "attrs": {},
       "provenance": {
-        "source": "atlas\\example.atlas.yaml",
+        "source": "atlas/example.atlas.yaml",
         "line": null,
         "column": null,
         "fragment": null
@@ -53,7 +53,7 @@ expression: json_output
       "message": "scenario `scen:broken` does not declare a proving command",
       "subject": "scen:broken",
       "location": {
-        "path": "atlas\\example.atlas.yaml",
+        "path": "atlas/example.atlas.yaml",
         "line": null,
         "column": null
       }
@@ -64,7 +64,7 @@ expression: json_output
       "message": "scenario `scen:broken` does not declare an exercised crate",
       "subject": "scen:broken",
       "location": {
-        "path": "atlas\\example.atlas.yaml",
+        "path": "atlas/example.atlas.yaml",
         "line": null,
         "column": null
       }
@@ -75,7 +75,29 @@ expression: json_output
       "message": "edge `scen:broken` -> `cmd:missing` references missing target node `cmd:missing`",
       "subject": "cmd:missing",
       "location": {
-        "path": "atlas\\example.atlas.yaml",
+        "path": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `crate:engine` has no relationships in the graph",
+      "subject": "crate:engine",
+      "location": {
+        "path": "Cargo.toml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `scen:broken` has no relationships in the graph",
+      "subject": "scen:broken",
+      "location": {
+        "path": "atlas/example.atlas.yaml",
         "line": null,
         "column": null
       }
@@ -84,8 +106,8 @@ expression: json_output
   "metrics": {
     "node_count": 2,
     "edge_count": 0,
-    "diagnostic_count": 3,
+    "diagnostic_count": 5,
     "error_count": 3,
-    "warning_count": 0
+    "warning_count": 2
   }
 }

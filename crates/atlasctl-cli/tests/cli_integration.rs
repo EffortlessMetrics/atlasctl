@@ -18,9 +18,7 @@ fn fixture_path(name: &str) -> std::path::PathBuf {
         .and_then(|p| p.parent())
         .expect("Failed to find workspace root");
 
-    workspace_root
-        .join("fixtures/repos")
-        .join(name)
+    workspace_root.join("fixtures/repos").join(name)
 }
 
 // Helper to create a temp dir and copy a fixture into it
@@ -181,7 +179,7 @@ fn test_build_nonexistent_repo() {
         .unwrap()
         .args(["build", "--repo-root", "/nonexistent/path"])
         .assert()
-        .failure()
+        .code(4) // Exit code 4 for runtime error
         .stderr(predicate::str::contains("error"));
 }
 
@@ -267,6 +265,43 @@ fn test_check_with_strict_profile() {
         ])
         .assert()
         .success();
+}
+
+// ============================================================================
+// DOCTOR COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_doctor_drift_repo() {
+    let temp_dir = setup_temp_fixture("doctor-drift");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["doctor", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success() // Warnings don't cause failure in default profile
+        .stdout(predicate::str::contains("status: ok"))
+        .stdout(predicate::str::contains("warnings: 5"))
+        .stdout(predicate::str::contains("diagnostics: 6"));
+}
+
+#[test]
+fn test_doctor_json_format() {
+    let temp_dir = setup_temp_fixture("doctor-drift");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "doctor",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"diagnostics\""))
+        .stdout(predicate::str::contains("orphan_node"));
 }
 
 // ============================================================================
@@ -379,6 +414,65 @@ fn test_query_markdown_frontmatter_repo() {
         ])
         .assert()
         .success();
+}
+
+// ============================================================================
+// WHY COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_why_by_id() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Node: scen:example-build"))
+        .stdout(predicate::str::contains("Proof chain:"));
+}
+
+#[test]
+fn test_why_by_path() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "crates/engine",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Node: crate:engine"));
+}
+
+#[test]
+fn test_why_markdown_format() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "markdown",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Why: `scen:example-build`"));
 }
 
 // ============================================================================
@@ -495,6 +589,49 @@ fn test_trace_invalid_node_id() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid trace root"));
+}
+
+// ============================================================================
+// IMPACTED COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_impacted_by_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Impact Analysis:"))
+        .stdout(predicate::str::contains("crate:engine"))
+        .stdout(predicate::str::contains("scen:example-build"));
+}
+
+#[test]
+fn test_impacted_uncovered() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("uncovered changes: 1"))
+        .stdout(predicate::str::contains("- unknown/file.txt"));
 }
 
 // ============================================================================
@@ -645,6 +782,117 @@ fn test_export_broken_link_repo() {
         .assert()
         .code(3) // Exit code 3 for validation failure
         .stdout(predicate::str::contains("\"diagnostics\""));
+}
+
+// ============================================================================
+// GITHUB SUMMARY TESTS
+// ============================================================================
+
+#[test]
+fn test_check_gh_summary() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "check",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "gh-summary",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### 🗺️ Atlas Summary"))
+        .stdout(predicate::str::contains("✅ Healthy"));
+}
+
+#[test]
+fn test_impacted_gh_summary() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "--format",
+            "gh-summary",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### 🎯 Atlas Impact Analysis"))
+        .stdout(predicate::str::contains("Impacted Proof Surface"));
+}
+
+// ============================================================================
+// INIT AND SCAFFOLD TESTS
+// ============================================================================
+
+#[test]
+fn test_init_command() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["init", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Initialized atlas"));
+
+    assert!(temp_dir.path().join("atlas.toml").exists());
+    let content = fs::read_to_string(temp_dir.path().join("atlas.toml")).unwrap();
+    assert!(content.contains("[repo]"));
+    assert!(content.contains("[discovery]"));
+}
+
+#[test]
+fn test_scaffold_scenario() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "scenario",
+            "new-feature",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded scenario"));
+
+    let scaffold_file = temp_dir.path().join("atlas/new-feature.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("id: scen:new-feature"));
+    assert!(content.contains("kind: scenario"));
+}
+
+#[test]
+fn test_scaffold_artifact() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "artifact",
+            "new-artifact",
+        ])
+        .assert()
+        .success();
+
+    let scaffold_file = temp_dir.path().join("atlas/new-artifact.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("id: artifact:new-artifact"));
 }
 
 // ============================================================================

@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 
 use atlasctl_codes::{DiagnosticCode, Severity};
-use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -205,6 +204,39 @@ impl FromStr for EdgeKind {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RepoRelativePath(String);
+
+impl RepoRelativePath {
+    pub fn new(path: impl Into<String>) -> Self {
+        let s = path.into();
+        Self(s.replace('\\', "/"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for RepoRelativePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl From<String> for RepoRelativePath {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<&str> for RepoRelativePath {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathSelector {
     pub pattern: String,
@@ -213,28 +245,28 @@ pub struct PathSelector {
 impl PathSelector {
     pub fn new(pattern: impl Into<String>) -> Self {
         Self {
-            pattern: pattern.into(),
+            pattern: RepoRelativePath::new(pattern).0,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceLocation {
-    pub path: Utf8PathBuf,
+    pub path: RepoRelativePath,
     pub line: Option<usize>,
     pub column: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Provenance {
-    pub source: Utf8PathBuf,
+    pub source: RepoRelativePath,
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub fragment: Option<String>,
 }
 
 impl Provenance {
-    pub fn new(source: Utf8PathBuf) -> Self {
+    pub fn new(source: RepoRelativePath) -> Self {
         Self {
             source,
             line: None,
@@ -333,12 +365,21 @@ pub struct DiscoveredRepo {
     pub diagnostics: Vec<AtlasDiagnostic>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscoveryConfig {
     #[serde(default = "default_roots")]
     pub roots: Vec<String>,
     #[serde(default = "default_ignored_paths")]
     pub ignore: Vec<String>,
+}
+
+impl Default for DiscoveryConfig {
+    fn default() -> Self {
+        Self {
+            roots: default_roots(),
+            ignore: default_ignored_paths(),
+        }
+    }
 }
 
 fn default_roots() -> Vec<String> {
@@ -513,6 +554,56 @@ pub struct QueryResponse {
     pub matches: Vec<NodeMatch>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WhySubject {
+    Id(AtlasId),
+    Path(RepoRelativePath),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WhyRequest {
+    pub subject: WhySubject,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WhyStep {
+    pub node: AtlasNode,
+    pub relationship: EdgeKind,
+    pub direction: TraceDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WhyResponse {
+    pub root: AtlasNode,
+    pub chain: Vec<WhyStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangedPath {
+    pub path: RepoRelativePath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImpactRequest {
+    pub paths: Vec<ChangedPath>,
+    #[serde(default)]
+    pub owners: std::collections::BTreeMap<RepoRelativePath, Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImpactHit {
+    pub node: AtlasNode,
+    pub reason: String,
+    #[serde(default)]
+    pub owners: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImpactResponse {
+    pub impacted: Vec<ImpactHit>,
+    pub uncovered: Vec<ChangedPath>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceDirection {
@@ -545,6 +636,7 @@ pub struct TraceResponse {
 pub enum RenderFormat {
     Json,
     Markdown,
+    GitHubSummary,
 }
 
 impl RenderFormat {
@@ -552,6 +644,7 @@ impl RenderFormat {
         match self {
             Self::Json => "json",
             Self::Markdown => "markdown",
+            Self::GitHubSummary => "gh-summary",
         }
     }
 
@@ -559,6 +652,7 @@ impl RenderFormat {
         match self {
             Self::Json => "atlas.json",
             Self::Markdown => "atlas.md",
+            Self::GitHubSummary => "atlas.gh-summary.md",
         }
     }
 }
@@ -575,7 +669,8 @@ impl FromStr for RenderFormat {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "json" => Ok(Self::Json),
-            "markdown" | "md" => Ok(Self::Markdown),
+            "markdown" => Ok(Self::Markdown),
+            "gh-summary" => Ok(Self::GitHubSummary),
             other => Err(other.to_string()),
         }
     }
@@ -596,6 +691,18 @@ mod tests {
     fn rejects_invalid_ids() {
         let err = AtlasId::parse("Scenario:Bad").expect_err("invalid id");
         assert!(matches!(err, AtlasIdError::InvalidKind { .. }));
+    }
+
+    #[test]
+    fn repo_relative_path_normalizes_slashes() {
+        let path = RepoRelativePath::new("crates\\foo\\src/lib.rs");
+        assert_eq!(path.as_str(), "crates/foo/src/lib.rs");
+    }
+
+    #[test]
+    fn path_selector_normalizes_slashes() {
+        let selector = PathSelector::new("crates\\*\\src");
+        assert_eq!(selector.pattern, "crates/*/src");
     }
 
     #[test]

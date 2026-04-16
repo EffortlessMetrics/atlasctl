@@ -2,10 +2,10 @@
 
 use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
-    AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode, DiscoveredRepo,
-    EdgeKind, NodeKind, NodeMatch, ProfileSettings, QueryRequest, QueryResponse, SourceLocation,
-    TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile,
-    ATLAS_SCHEMA_VERSION,
+    ATLAS_SCHEMA_VERSION, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode,
+    DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind, NodeMatch,
+    ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection, TraceEdge,
+    TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -137,13 +137,12 @@ pub fn query_graph(graph: &AtlasGraph, request: &QueryRequest) -> QueryResponse 
     let mut matches = Vec::new();
 
     for node in &graph.nodes {
-        if let Some(kind) = request.kind {
-            if node.kind != kind {
-                continue;
-            }
+        if let Some(kind) = request.kind
+            && node.kind != kind
+        {
+            continue;
         }
-
-        let mut score = 0_u32;
+        let mut score = 0;
         if node.id.as_str().eq_ignore_ascii_case(&request.needle) {
             score = 100;
         } else if node.id.as_str().to_lowercase().contains(&needle) {
@@ -289,6 +288,184 @@ pub fn trace_graph(graph: &AtlasGraph, request: &TraceRequest) -> Option<TraceRe
     })
 }
 
+pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse> {
+    let root = match &request.subject {
+        WhySubject::Id(id) => graph.nodes.iter().find(|n| n.id == *id)?,
+        WhySubject::Path(path) => {
+            // Find nodes that have a selector matching this path
+            graph.nodes.iter().find(|n| {
+                n.paths.iter().any(|p| {
+                    let pattern = p.pattern.replace('\\', "/");
+                    let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
+                        .ok()
+                        .and_then(|g| g.compile_matcher().into());
+                    if let Some(glob) = glob {
+                        glob.is_match(path.as_str())
+                    } else {
+                        false
+                    }
+                })
+            })?
+        }
+    };
+
+    let mut chain = Vec::new();
+    let mut visited = BTreeSet::new();
+    visited.insert(root.id.clone());
+
+    // Look for immediate relationships that "explain" this node
+    for edge in &graph.edges {
+        if edge.to == root.id {
+            // Incoming edges
+            match edge.kind {
+                EdgeKind::Explains
+                | EdgeKind::Proves
+                | EdgeKind::Exercises
+                | EdgeKind::RunsWith
+                | EdgeKind::Documents
+                | EdgeKind::BelongsTo => {
+                    if let Some(node) = graph.nodes.iter().find(|n| n.id == edge.from)
+                        && visited.insert(node.id.clone())
+                    {
+                        chain.push(WhyStep {
+                            node: node.clone(),
+                            relationship: edge.kind,
+                            direction: TraceDirection::Incoming,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        } else if edge.from == root.id {
+            // Outgoing edges
+            match edge.kind {
+                EdgeKind::Emits | EdgeKind::Exercises | EdgeKind::RunsWith => {
+                    if let Some(node) = graph.nodes.iter().find(|n| n.id == edge.to)
+                        && visited.insert(node.id.clone())
+                    {
+                        chain.push(WhyStep {
+                            node: node.clone(),
+                            relationship: edge.kind,
+                            direction: TraceDirection::Outgoing,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Some(WhyResponse {
+        root: root.clone(),
+        chain,
+    })
+}
+
+pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResponse {
+    let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
+    let mut uncovered = Vec::new();
+
+    for changed in &request.paths {
+        let mut found_any = false;
+        for node in &graph.nodes {
+            for selector in &node.paths {
+                let pattern = selector.pattern.replace('\\', "/");
+                let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
+                    .ok()
+                    .and_then(|g| g.compile_matcher().into());
+                if let Some(glob) = glob
+                    && glob.is_match(changed.path.as_str())
+                {
+                    found_any = true;
+
+                    let mut hit_owners = Vec::new();
+                    if let Some(owners) = request.owners.get(&changed.path) {
+                        hit_owners.extend(owners.clone());
+                    }
+
+                    let entry = impacted
+                        .entry(node.id.clone())
+                        .or_insert_with(|| ImpactHit {
+                            node: node.clone(),
+                            reason: format!("matches changed path `{}`", changed.path),
+                            owners: Vec::new(),
+                        });
+
+                    // Merge owners
+                    for o in hit_owners {
+                        if !entry.owners.contains(&o) {
+                            entry.owners.push(o);
+                        }
+                    }
+                }
+            }
+        }
+        if !found_any {
+            uncovered.push(changed.clone());
+        }
+    }
+
+    // Graph expansion: 1 step from direct hits
+    let direct_hits: Vec<_> = impacted.keys().cloned().collect();
+    for hit_id in direct_hits {
+        for edge in &graph.edges {
+            if edge.from == hit_id {
+                // Outgoing
+                if let Some(to_node) = graph.nodes.iter().find(|n| n.id == edge.to) {
+                    let from_owners = impacted
+                        .get(&hit_id)
+                        .map(|h| h.owners.clone())
+                        .unwrap_or_default();
+                    let entry = impacted
+                        .entry(to_node.id.clone())
+                        .or_insert_with(|| ImpactHit {
+                            node: to_node.clone(),
+                            reason: format!("related to `{}` via `{}`", hit_id, edge.kind),
+                            owners: Vec::new(),
+                        });
+
+                    // Propagate owners
+                    for o in from_owners {
+                        if !entry.owners.contains(&o) {
+                            entry.owners.push(o);
+                        }
+                    }
+                }
+            } else if edge.to == hit_id {
+                // Incoming
+                if let Some(from_node) = graph.nodes.iter().find(|n| n.id == edge.from) {
+                    let to_owners = impacted
+                        .get(&hit_id)
+                        .map(|h| h.owners.clone())
+                        .unwrap_or_default();
+                    let entry = impacted
+                        .entry(from_node.id.clone())
+                        .or_insert_with(|| ImpactHit {
+                            node: from_node.clone(),
+                            reason: format!("relates to `{}` via `{}`", hit_id, edge.kind),
+                            owners: Vec::new(),
+                        });
+
+                    // Propagate owners
+                    for o in to_owners {
+                        if !entry.owners.contains(&o) {
+                            entry.owners.push(o);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut impacted_list: Vec<_> = impacted.into_values().collect();
+    impacted_list.sort_by(|a, b| a.node.id.cmp(&b.node.id));
+
+    ImpactResponse {
+        impacted: impacted_list,
+        uncovered,
+    }
+}
+
 fn validate_completeness(
     nodes: &[AtlasNode],
     edges: &[AtlasEdge],
@@ -304,7 +481,32 @@ fn validate_completeness(
     }
 
     for node in nodes {
+        let has_any_edge = outgoing.contains_key(&node.id) || incoming.contains_key(&node.id);
+        if !has_any_edge {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::OrphanNode,
+                format!("node `{}` has no relationships in the graph", node.id),
+                Some(node.id.clone()),
+                Some(node.provenance.location()),
+            ));
+        }
+
         match node.kind {
+            NodeKind::Command => {
+                let is_used = incoming
+                    .get(&node.id)
+                    .map(|edges| edges.iter().any(|edge| edge.kind == EdgeKind::RunsWith))
+                    .unwrap_or(false);
+
+                if !is_used {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::StaleCommand,
+                        format!("command `{}` is not used by any scenario", node.id),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
+                }
+            }
             NodeKind::Scenario => {
                 if settings.require_scenario_command {
                     let has_command = outgoing
@@ -412,7 +614,7 @@ mod tests {
     use atlasctl_ports::DiscoveryPort;
     use atlasctl_types::{
         AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind, PathSelector,
-        Provenance, RepoDescriptor,
+        Provenance, RepoDescriptor, RepoRelativePath,
     };
     use proptest::proptest;
     use std::collections::BTreeMap;
@@ -425,7 +627,7 @@ mod tests {
             summary: None,
             paths: vec![PathSelector::new("src/lib.rs")],
             attrs: BTreeMap::new(),
-            provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
         }
     }
 
@@ -434,7 +636,7 @@ mod tests {
             from: AtlasId::parse(from).expect("valid from"),
             kind,
             to: AtlasId::parse(to).expect("valid to"),
-            provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
         }
     }
 
@@ -454,10 +656,12 @@ mod tests {
         };
 
         let graph = compile_atlas(repo, ValidationProfile::Default);
-        assert!(graph
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code == DiagnosticCode::DuplicateId));
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::DuplicateId)
+        );
     }
 
     #[test]
@@ -476,10 +680,12 @@ mod tests {
         };
 
         let graph = compile_atlas(repo, ValidationProfile::Default);
-        assert!(graph
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code == DiagnosticCode::ScenarioMissingCommand));
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ScenarioMissingCommand)
+        );
     }
 
     #[test]
@@ -790,10 +996,12 @@ mod tests {
             },
         );
         assert_eq!(response.needle, "");
-        assert!(response
-            .matches
-            .iter()
-            .all(|m| m.node.kind == NodeKind::Scenario));
+        assert!(
+            response
+                .matches
+                .iter()
+                .all(|m| m.node.kind == NodeKind::Scenario)
+        );
     }
 
     /// SCENARIO: Tracing the atlas with different directions
@@ -1131,7 +1339,7 @@ mod tests {
                 summary: None,
                 paths: vec![PathSelector::new("src/lib.rs")],
                 attrs: BTreeMap::new(),
-                provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
             }
         };
 
@@ -1152,7 +1360,7 @@ mod tests {
                 from: AtlasId::parse(&from).unwrap(),
                 kind: EdgeKind::Explains,
                 to: AtlasId::parse(&to).unwrap(),
-                provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
             })
             .collect();
 
@@ -1255,7 +1463,7 @@ mod tests {
             summary: None,
             paths: vec![PathSelector::new("src/first.rs")],
             attrs: BTreeMap::new(),
-            provenance: Provenance::new("atlas/first.atlas.yaml".into()),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/first.atlas.yaml")),
         };
 
         let node2 = AtlasNode {
@@ -1265,7 +1473,7 @@ mod tests {
             summary: None,
             paths: vec![PathSelector::new("src/second.rs")],
             attrs: BTreeMap::new(),
-            provenance: Provenance::new("atlas/second.atlas.yaml".into()),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/second.atlas.yaml")),
         };
 
         let other_nodes: Vec<_> = other_ids
@@ -1338,7 +1546,7 @@ mod tests {
                     summary: Some(format!("Summary for {}", id_str)),
                     paths: vec![PathSelector::new("src/lib.rs")],
                     attrs: BTreeMap::new(),
-                    provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
                 })
             })
             .collect();
@@ -1400,7 +1608,7 @@ mod tests {
                     summary: None,
                     paths: vec![PathSelector::new("src/lib.rs")],
                     attrs: BTreeMap::new(),
-                    provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
                 })
             })
             .collect();
@@ -1414,7 +1622,7 @@ mod tests {
                 from: valid_nodes[i].id.clone(),
                 kind: EdgeKind::Explains,
                 to: valid_nodes[i + 1].id.clone(),
-                provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
             });
         }
 
@@ -1486,7 +1694,7 @@ mod tests {
                     summary: None,
                     paths: vec![PathSelector::new("src/lib.rs")],
                     attrs: BTreeMap::new(),
-                    provenance: Provenance::new("atlas/example.atlas.yaml".into()),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
                 })
             })
             .collect();
@@ -1537,7 +1745,7 @@ mod golden {
     use atlasctl_fixtures::repo;
     use atlasctl_ports::{DiscoverRequest, DiscoveryPort, RenderPort};
     use atlasctl_render::AtlasRenderer;
-    use atlasctl_types::RenderFormat;
+    use atlasctl_types::{ChangedPath, RenderFormat, WhyRequest, WhySubject};
 
     const FIXTURES: &[&str] = &[
         "valid-minimal",
@@ -1545,6 +1753,7 @@ mod golden {
         "duplicate-id",
         "orphan-scenario",
         "markdown-frontmatter",
+        "doctor-drift",
     ];
 
     fn build_atlas(name: &str) -> AtlasGraph {
@@ -1560,6 +1769,105 @@ mod golden {
             .expect("discovery should succeed");
 
         compile_atlas(discovered, ValidationProfile::Default)
+    }
+
+    #[test]
+    fn scenario_why_finds_proof_chain() {
+        let graph = build_atlas("valid-minimal");
+        let id = AtlasId::parse("scen:example-build").unwrap();
+        let request = WhyRequest {
+            subject: WhySubject::Id(id),
+        };
+        let response = why_graph(&graph, &request).expect("response");
+        assert_eq!(response.root.id.as_str(), "scen:example-build");
+        assert!(!response.chain.is_empty());
+        assert!(
+            response
+                .chain
+                .iter()
+                .any(|s| s.node.id.as_str() == "crate:engine")
+        );
+    }
+
+    #[test]
+    fn scenario_why_by_path() {
+        let graph = build_atlas("valid-minimal");
+        let request = WhyRequest {
+            subject: WhySubject::Path("crates/engine".into()),
+        };
+        let response = why_graph(&graph, &request).expect("response");
+        assert_eq!(response.root.id.as_str(), "crate:engine");
+    }
+
+    #[test]
+    fn portability_no_absolute_paths_in_output() {
+        let graph = build_atlas("valid-minimal");
+        let json = serde_json::to_string(&graph).unwrap();
+
+        // Assert no absolute paths (roughly starting with / or [A-Z]:\)
+        // This is a simple heuristic but effective for regression
+        assert!(!json.contains(":\\\\"), "Found Windows absolute path");
+        assert!(!json.contains("\":/"), "Found POSIX absolute path");
+    }
+
+    #[test]
+    fn portability_slashes_are_normalized() {
+        let graph = build_atlas("valid-minimal");
+        for node in &graph.nodes {
+            for path in &node.paths {
+                assert!(
+                    !path.pattern.contains('\\'),
+                    "Path selector contains backslash: {}",
+                    path.pattern
+                );
+            }
+            assert!(
+                !node.provenance.source.as_str().contains('\\'),
+                "Provenance contains backslash: {}",
+                node.provenance.source
+            );
+        }
+    }
+
+    #[test]
+    fn scenario_impacted_by_path() {
+        let graph = build_atlas("valid-minimal");
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/engine".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+        assert!(!response.impacted.is_empty());
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|h| h.node.id.as_str() == "crate:engine")
+        );
+        // Scenario exercises engine, so it should be impacted too
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|h| h.node.id.as_str() == "scen:example-build")
+        );
+    }
+
+    #[test]
+    fn scenario_impacted_uncovered() {
+        let graph = build_atlas("valid-minimal");
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "unknown/file.txt".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+        assert!(response.impacted.is_empty());
+        assert!(!response.uncovered.is_empty());
+        assert_eq!(response.uncovered[0].path.as_str(), "unknown/file.txt");
     }
 
     #[test]
