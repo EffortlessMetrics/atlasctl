@@ -472,6 +472,8 @@ pub struct ProfileOverrides {
     pub require_scenario_command: Option<bool>,
     pub require_scenario_crate: Option<bool>,
     pub require_artifact_producer: Option<bool>,
+    pub require_requirement_proof: Option<bool>,
+    pub require_crate_scenario: Option<bool>,
     pub warnings_as_errors: Option<bool>,
 }
 
@@ -553,6 +555,8 @@ pub struct ProfileSettings {
     pub require_scenario_command: bool,
     pub require_scenario_crate: bool,
     pub require_artifact_producer: bool,
+    pub require_requirement_proof: bool,
+    pub require_crate_scenario: bool,
     pub warnings_as_errors: bool,
 }
 
@@ -563,18 +567,24 @@ impl ProfileSettings {
                 require_scenario_command: true,
                 require_scenario_crate: true,
                 require_artifact_producer: false,
+                require_requirement_proof: false,
+                require_crate_scenario: false,
                 warnings_as_errors: false,
             },
             ValidationProfile::Ci => Self {
                 require_scenario_command: true,
                 require_scenario_crate: true,
                 require_artifact_producer: true,
+                require_requirement_proof: true,
+                require_crate_scenario: true,
                 warnings_as_errors: false,
             },
             ValidationProfile::Strict => Self {
                 require_scenario_command: true,
                 require_scenario_crate: true,
                 require_artifact_producer: true,
+                require_requirement_proof: true,
+                require_crate_scenario: true,
                 warnings_as_errors: true,
             },
         }
@@ -589,6 +599,12 @@ impl ProfileSettings {
         }
         if let Some(value) = overrides.require_artifact_producer {
             self.require_artifact_producer = value;
+        }
+        if let Some(value) = overrides.require_requirement_proof {
+            self.require_requirement_proof = value;
+        }
+        if let Some(value) = overrides.require_crate_scenario {
+            self.require_crate_scenario = value;
         }
         if let Some(value) = overrides.warnings_as_errors {
             self.warnings_as_errors = value;
@@ -712,6 +728,7 @@ pub enum RenderFormat {
     Json,
     Markdown,
     GitHubSummary,
+    ReviewPacket,
 }
 
 impl RenderFormat {
@@ -720,6 +737,7 @@ impl RenderFormat {
             Self::Json => "json",
             Self::Markdown => "markdown",
             Self::GitHubSummary => "gh-summary",
+            Self::ReviewPacket => "review-packet",
         }
     }
 
@@ -728,6 +746,7 @@ impl RenderFormat {
             Self::Json => "atlas.json",
             Self::Markdown => "atlas.md",
             Self::GitHubSummary => "atlas.gh-summary.md",
+            Self::ReviewPacket => "atlas.review-packet.md",
         }
     }
 }
@@ -746,6 +765,7 @@ impl FromStr for RenderFormat {
             "json" => Ok(Self::Json),
             "markdown" => Ok(Self::Markdown),
             "gh-summary" => Ok(Self::GitHubSummary),
+            "review-packet" => Ok(Self::ReviewPacket),
             other => Err(other.to_string()),
         }
     }

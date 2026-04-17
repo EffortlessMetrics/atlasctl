@@ -163,6 +163,7 @@ enum OutputArg {
     Json,
     Markdown,
     GhSummary,
+    ReviewPacket,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -170,6 +171,7 @@ enum FormatArg {
     Json,
     Markdown,
     GhSummary,
+    ReviewPacket,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -195,6 +197,7 @@ impl From<OutputArg> for RenderFormat {
             OutputArg::Text | OutputArg::Markdown => RenderFormat::Markdown,
             OutputArg::Json => RenderFormat::Json,
             OutputArg::GhSummary => RenderFormat::GitHubSummary,
+            OutputArg::ReviewPacket => RenderFormat::ReviewPacket,
         }
     }
 }
@@ -205,6 +208,7 @@ impl From<FormatArg> for RenderFormat {
             FormatArg::Json => RenderFormat::Json,
             FormatArg::Markdown => RenderFormat::Markdown,
             FormatArg::GhSummary => RenderFormat::GitHubSummary,
+            FormatArg::ReviewPacket => RenderFormat::ReviewPacket,
         }
     }
 }
@@ -400,6 +404,13 @@ edges:
                         .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
                     println!("{md}");
                 }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
             }
 
             Ok(if outcome.has_errors {
@@ -434,6 +445,13 @@ edges:
                         .renderer
                         .render(&outcome.graph, RenderFormat::GitHubSummary)
                         .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
                     println!("{md}");
                 }
             }
@@ -491,6 +509,13 @@ edges:
                         .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
                     println!("{md}");
                 }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
             }
 
             Ok(ExitCode::Ok)
@@ -542,6 +567,16 @@ edges:
                             atlasctl_types::RenderFormat::GitHubSummary,
                         )
                         .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render_why(
+                            outcome.response.as_ref().ok_or("no response")?,
+                            atlasctl_types::RenderFormat::ReviewPacket,
+                        )
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
                     println!("{md}");
                 }
             }

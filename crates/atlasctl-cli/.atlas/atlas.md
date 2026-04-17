@@ -1,4 +1,4 @@
-# Atlas: .tmpxQv3b0
+# Atlas: .tmpiEJvrO
 
 ## Summary
 
@@ -19,13 +19,13 @@
 
 - `adr:0001-example` — Example ADR
   - Source: `docs/adr/0001-example.md`
-  - Paths: `docs/adr/0001-example.md`
+  - Owns: `docs/adr/0001-example.md`
 
 ### scenario
 
 - `scen:example-build` — Example build
   - Source: `atlas/example.atlas.yaml`
-  - Paths: `crates/engine/src/lib.rs`
+  - Owns: `crates/engine/src/lib.rs`
 
 ### command
 
@@ -41,7 +41,7 @@
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Paths: `crates/engine`
+  - Owns: `crates/engine`
 
 ## Edges
 

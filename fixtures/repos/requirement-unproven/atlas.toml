@@ -1,0 +1,7 @@
+[repo]
+name = "requirement-unproven"
+
+[profiles.ci]
+require_requirement_proof = true
+require_crate_scenario = true
+warnings_as_errors = true

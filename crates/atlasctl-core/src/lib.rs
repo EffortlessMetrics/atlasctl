@@ -563,6 +563,40 @@ fn validate_completeness(
                     }
                 }
             }
+            NodeKind::Requirement => {
+                if settings.require_requirement_proof {
+                    let is_proven = incoming
+                        .get(&node.id)
+                        .map(|edges| edges.iter().any(|edge| edge.kind == EdgeKind::Proves))
+                        .unwrap_or(false);
+
+                    if !is_proven {
+                        diagnostics.push(AtlasDiagnostic::new(
+                            DiagnosticCode::RequirementNotProven,
+                            format!("requirement `{}` is not proven by any scenario", node.id),
+                            Some(node.id.clone()),
+                            Some(node.provenance.location()),
+                        ));
+                    }
+                }
+            }
+            NodeKind::Crate => {
+                if settings.require_crate_scenario {
+                    let is_exercised = incoming
+                        .get(&node.id)
+                        .map(|edges| edges.iter().any(|edge| edge.kind == EdgeKind::Exercises))
+                        .unwrap_or(false);
+
+                    if !is_exercised {
+                        diagnostics.push(AtlasDiagnostic::new(
+                            DiagnosticCode::UncoveredCrate,
+                            format!("crate `{}` is not exercised by any scenario", node.id),
+                            Some(node.id.clone()),
+                            Some(node.provenance.location()),
+                        ));
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1774,6 +1808,7 @@ mod golden {
         "orphan-scenario",
         "markdown-frontmatter",
         "doctor-drift",
+        "requirement-unproven",
     ];
 
     fn build_atlas(name: &str) -> AtlasGraph {
@@ -1888,6 +1923,41 @@ mod golden {
         assert!(response.impacted.is_empty());
         assert!(!response.uncovered.is_empty());
         assert_eq!(response.uncovered[0].path.as_str(), "unknown/file.txt");
+    }
+
+    #[test]
+    fn scenario_validation_with_new_classes() {
+        use atlasctl_discover_fs::FsDiscovery;
+        use atlasctl_ports::DiscoverRequest;
+        use camino::Utf8PathBuf;
+
+        let repo_root = Utf8PathBuf::from("../../fixtures/repos/requirement-unproven");
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed");
+
+        // Compile with CI profile which has the new checks enabled
+        let graph = compile_atlas(discovered, ValidationProfile::Ci);
+
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::RequirementNotProven)
+        );
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::UncoveredCrate)
+        );
+        assert!(graph.metrics.error_count >= 2);
     }
 
     #[test]

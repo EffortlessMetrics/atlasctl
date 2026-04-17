@@ -216,7 +216,9 @@
         "stale_command",
         "broken_doc_link",
         "duplicate_ownership",
-        "empty_fragment"
+        "empty_fragment",
+        "requirement_not_proven",
+        "uncovered_crate"
       ]
     },
     "EdgeKind": {

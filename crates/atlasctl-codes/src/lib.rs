@@ -56,6 +56,8 @@ pub enum DiagnosticCode {
     BrokenDocLink,
     DuplicateOwnership,
     EmptyFragment,
+    RequirementNotProven,
+    UncoveredCrate,
 }
 
 impl DiagnosticCode {
@@ -82,6 +84,8 @@ impl DiagnosticCode {
             Self::BrokenDocLink => "broken_doc_link",
             Self::DuplicateOwnership => "duplicate_ownership",
             Self::EmptyFragment => "empty_fragment",
+            Self::RequirementNotProven => "requirement_not_proven",
+            Self::UncoveredCrate => "uncovered_crate",
         }
     }
 
@@ -108,6 +112,8 @@ impl DiagnosticCode {
             Self::BrokenDocLink => "documentation link is broken",
             Self::DuplicateOwnership => "path is claimed by multiple nodes",
             Self::EmptyFragment => "fragment file contains no atlas metadata",
+            Self::RequirementNotProven => "requirement is not proven by any scenario",
+            Self::UncoveredCrate => "crate is not exercised by any scenario",
         }
     }
 
@@ -119,6 +125,8 @@ impl DiagnosticCode {
             Self::OrphanNode => Severity::Warning,
             Self::StaleCommand => Severity::Warning,
             Self::EmptyFragment => Severity::Info,
+            Self::RequirementNotProven => Severity::Warning,
+            Self::UncoveredCrate => Severity::Warning,
             _ => Severity::Error,
         }
     }

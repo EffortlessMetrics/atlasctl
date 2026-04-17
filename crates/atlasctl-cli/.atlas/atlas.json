@@ -2,19 +2,21 @@
   "schema_version": 1,
   "tool_version": "0.1.0",
   "repo": {
-    "name": ".tmpxQv3b0"
+    "name": ".tmpiEJvrO"
   },
   "nodes": [
     {
       "id": "adr:0001-example",
       "kind": "adr",
+      "role": "document",
       "title": "Example ADR",
       "summary": null,
-      "paths": [
+      "owns": [
         {
           "pattern": "docs/adr/0001-example.md"
         }
       ],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "docs/adr/0001-example.md",
@@ -26,9 +28,11 @@
     {
       "id": "artifact:example-report",
       "kind": "artifact",
+      "role": "artifact",
       "title": "Example report",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/example.atlas.yaml",
@@ -40,9 +44,11 @@
     {
       "id": "cmd:ci-fast",
       "kind": "command",
+      "role": "command",
       "title": "Fast CI",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/example.atlas.yaml",
@@ -54,13 +60,15 @@
     {
       "id": "crate:engine",
       "kind": "crate",
+      "role": "infra",
       "title": "engine",
       "summary": null,
-      "paths": [
+      "owns": [
         {
           "pattern": "crates/engine"
         }
       ],
+      "touches": [],
       "attrs": {
         "manifest_path": "crates/engine/Cargo.toml",
         "version": "0.1.0"
@@ -75,9 +83,11 @@
     {
       "id": "req:example",
       "kind": "requirement",
+      "role": "behavior",
       "title": "Example requirement",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/example.atlas.yaml",
@@ -89,13 +99,15 @@
     {
       "id": "scen:example-build",
       "kind": "scenario",
+      "role": "proof",
       "title": "Example build",
       "summary": null,
-      "paths": [
+      "owns": [
         {
           "pattern": "crates/engine/src/lib.rs"
         }
       ],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/example.atlas.yaml",

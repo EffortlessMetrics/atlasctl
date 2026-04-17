@@ -1,0 +1,35 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: requirement-unproven
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `2`
+- Edges: `0`
+- Diagnostics: `1` (errors: `0`, warnings: `1`)
+
+## Nodes by kind
+
+### requirement
+
+- `req:unproven` — Unproven requirement
+  - Source: `atlas/example.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Owns: `crates/engine`
+
+## Edges
+
+
+## Diagnostics
+
+- [warning] `orphan_node` — node `req:unproven` has no relationships in the graph
+  - Subject: `req:unproven`
+  - Location: `atlas/example.atlas.yaml`

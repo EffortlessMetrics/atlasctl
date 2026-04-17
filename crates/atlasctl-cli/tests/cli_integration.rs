@@ -33,7 +33,7 @@ fn setup_temp_fixture(fixture_name: &str) -> TempDir {
 }
 
 // Recursive directory copy helper
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
@@ -79,6 +79,194 @@ fn test_build_valid_repo() {
     assert!(output_dir.join("atlas.md").exists());
 }
 
+#[test]
+fn test_build_with_custom_output_dir() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let output_dir = temp_dir.path().join("custom-output");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "build",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--out-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_dir.join("atlas.json").exists());
+    assert!(output_dir.join("atlas.md").exists());
+}
+
+#[test]
+fn test_build_with_ci_profile() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "build",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "ci",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_build_with_strict_profile() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "build",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "strict",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_build_broken_link_repo() {
+    let temp_dir = setup_temp_fixture("broken-link");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure
+        .stdout(predicate::str::contains("status: invalid"))
+        .stdout(predicate::str::contains("errors:"));
+}
+
+#[test]
+fn test_build_duplicate_id_repo() {
+    let temp_dir = setup_temp_fixture("duplicate-id");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure
+        .stdout(predicate::str::contains("status: invalid"))
+        .stdout(predicate::str::contains("errors:"));
+}
+
+#[test]
+fn test_build_orphan_scenario_repo() {
+    let temp_dir = setup_temp_fixture("orphan-scenario");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure
+        .stdout(predicate::str::contains("status: invalid"))
+        .stdout(predicate::str::contains("errors:"));
+}
+
+#[test]
+fn test_build_nonexistent_repo() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", "/nonexistent/path"])
+        .assert()
+        .code(4) // Exit code 4 for runtime error
+        .stderr(predicate::str::contains("error"));
+}
+
+// ============================================================================
+// CHECK COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_check_valid_repo_text_format() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["check", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("status: ok"))
+        .stdout(predicate::str::contains("errors: 0"))
+        .stdout(predicate::str::contains("warnings: 0"));
+}
+
+#[test]
+fn test_check_valid_repo_json_format() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "check",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"repo\""))
+        .stdout(predicate::str::contains("\"metrics\""));
+}
+
+#[test]
+fn test_check_broken_link_repo() {
+    let temp_dir = setup_temp_fixture("broken-link");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["check", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure
+        .stdout(predicate::str::contains("status: invalid"))
+        .stdout(predicate::str::contains("errors:"));
+}
+
+#[test]
+fn test_check_with_ci_profile() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "check",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "ci",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_check_with_strict_profile() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "check",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "strict",
+        ])
+        .assert()
+        .success();
+}
+
 // ============================================================================
 // DOCTOR COMMAND TESTS
 // ============================================================================
@@ -114,6 +302,118 @@ fn test_doctor_json_format() {
         .success()
         .stdout(predicate::str::contains("\"diagnostics\""))
         .stdout(predicate::str::contains("orphan_node"));
+}
+
+// ============================================================================
+// QUERY COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_query_by_id() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "req:example",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("req:example"))
+        .stdout(predicate::str::contains("requirement"))
+        .stdout(predicate::str::contains("Example requirement"));
+}
+
+#[test]
+fn test_query_by_title() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("scen:example-build"))
+        .stdout(predicate::str::contains("Example build"));
+}
+
+#[test]
+fn test_query_by_kind() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--kind",
+            "scenario",
+            "example",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("scen:example-build"));
+}
+
+#[test]
+fn test_query_no_matches() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "nonexistent",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no matches"));
+}
+
+#[test]
+fn test_query_invalid_kind() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--kind",
+            "invalid_kind",
+            "example",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown node kind"));
+}
+
+#[test]
+fn test_query_markdown_frontmatter_repo() {
+    let temp_dir = setup_temp_fixture("markdown-frontmatter");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "guide",
+        ])
+        .assert()
+        .success();
 }
 
 // ============================================================================
@@ -156,6 +456,141 @@ fn test_why_by_path() {
         .stdout(predicate::str::contains("Node: crate:engine"));
 }
 
+#[test]
+fn test_why_markdown_format() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "markdown",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Why: `scen:example-build`"));
+}
+
+// ============================================================================
+// TRACE COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_trace_outgoing() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--direction",
+            "outgoing",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root: scen:example-build"))
+        .stdout(predicate::str::contains("nodes:"))
+        .stdout(predicate::str::contains("edges:"));
+}
+
+#[test]
+fn test_trace_incoming() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--direction",
+            "incoming",
+            "req:example",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root: req:example"))
+        .stdout(predicate::str::contains("scen:example-build"));
+}
+
+#[test]
+fn test_trace_both_directions() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--direction",
+            "both",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root: scen:example-build"));
+}
+
+#[test]
+fn test_trace_with_max_depth() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--max-depth",
+            "1",
+            "scen:example-build",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_trace_nonexistent_node() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "nonexistent:node",
+        ])
+        .assert()
+        .code(3) // Exit code 3 for validation failure when root not found
+        .stdout(predicate::str::contains("trace root not found"));
+}
+
+#[test]
+fn test_trace_invalid_node_id() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "invalid-id-format",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid trace root"));
+}
+
 // ============================================================================
 // IMPACTED COMMAND TESTS
 // ============================================================================
@@ -180,6 +615,196 @@ fn test_impacted_by_paths() {
         .stdout(predicate::str::contains("scen:example-build"));
 }
 
+#[test]
+fn test_impacted_uncovered() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("uncovered changes: 1"))
+        .stdout(predicate::str::contains("- unknown/file.txt"));
+}
+
+#[test]
+fn test_impacted_review_packet() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("## 🎯 Impacted Proof Surface"));
+}
+
+// ============================================================================
+// EXPORT COMMAND TESTS
+// ============================================================================
+
+#[test]
+fn test_export_json_to_stdout() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"repo\""))
+        .stdout(predicate::str::contains("\"nodes\""))
+        .stdout(predicate::str::contains("\"edges\""));
+}
+
+#[test]
+fn test_export_markdown_to_stdout() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "markdown",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Atlas"));
+}
+
+#[test]
+fn test_export_json_to_file() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let output_file = temp_dir.path().join("output.json");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+            "--out",
+            output_file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("\"repo\""));
+    assert!(content.contains("\"nodes\""));
+}
+
+#[test]
+fn test_export_markdown_to_file() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let output_file = temp_dir.path().join("output.md");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "markdown",
+            "--out",
+            output_file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("# Atlas"));
+}
+
+#[test]
+fn test_export_to_nested_directory() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let output_file = temp_dir.path().join("nested/dir/output.json");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+            "--out",
+            output_file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_file.exists());
+}
+
+#[test]
+fn test_export_with_profile() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+            "--profile",
+            "ci",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_export_broken_link_repo() {
+    let temp_dir = setup_temp_fixture("broken-link");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "export",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(3) // Exit code 3 for validation failure
+        .stdout(predicate::str::contains("\"diagnostics\""));
+}
+
 // ============================================================================
 // GITHUB SUMMARY TESTS
 // ============================================================================
@@ -201,6 +826,27 @@ fn test_check_gh_summary() {
         .success()
         .stdout(predicate::str::contains("### 🗺️ Atlas Summary"))
         .stdout(predicate::str::contains("✅ Healthy"));
+}
+
+#[test]
+fn test_impacted_gh_summary() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "--format",
+            "gh-summary",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### 🎯 Atlas Impact Analysis"))
+        .stdout(predicate::str::contains("Impacted Proof Surface"));
 }
 
 // ============================================================================
@@ -282,4 +928,241 @@ fn test_scaffold_artifact() {
     assert!(scaffold_file.exists());
     let content = fs::read_to_string(scaffold_file).unwrap();
     assert!(content.contains("id: artifact:new-artifact"));
+}
+
+// ============================================================================
+// ERROR HANDLING TESTS
+// ============================================================================
+
+#[test]
+fn test_no_command_provided() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Commands:"));
+}
+
+#[test]
+fn test_invalid_subcommand() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["invalid-command"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid"));
+}
+
+#[test]
+fn test_help_flag() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Compile and inspect a repo behavior/proof atlas",
+        ));
+}
+
+#[test]
+fn test_build_help() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("build"));
+}
+
+#[test]
+fn test_check_help() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["check", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("check"));
+}
+
+#[test]
+fn test_query_help() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["query", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("query"));
+}
+
+#[test]
+fn test_trace_help() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["trace", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("trace"));
+}
+
+#[test]
+fn test_export_help() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["export", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("export"));
+}
+
+// ============================================================================
+// EXIT CODE TESTS
+// ============================================================================
+
+#[test]
+fn test_exit_code_success_valid_repo() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["check", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_exit_code_validation_failure() {
+    let temp_dir = setup_temp_fixture("broken-link");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["check", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure
+        .stdout(predicate::str::contains("status: invalid"));
+}
+
+#[test]
+fn test_exit_code_runtime_error() {
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", "/nonexistent/path"])
+        .assert()
+        .code(4) // Exit code 4 for runtime error
+        .stderr(predicate::str::contains("error"));
+}
+
+// ============================================================================
+// MARKDOWN FRONTMATTER TESTS
+// ============================================================================
+
+// Note: markdown-frontmatter fixture has a broken reference (req:frontmatter doesn't exist)
+// so it will fail validation. This tests that markdown frontmatter is parsed correctly
+// even when there are validation errors.
+#[test]
+fn test_build_markdown_frontmatter_repo() {
+    let temp_dir = setup_temp_fixture("markdown-frontmatter");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure (has errors)
+        .stdout(predicate::str::contains("status: invalid"));
+}
+
+#[test]
+fn test_check_markdown_frontmatter_repo() {
+    let temp_dir = setup_temp_fixture("markdown-frontmatter");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["check", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .code(3) // Exit code 3 for validation failure (has errors)
+        .stdout(predicate::str::contains("status: invalid"));
+}
+
+// ============================================================================
+// COMPLEX SCENARIO TESTS
+// ============================================================================
+
+#[test]
+fn test_build_then_query() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    // First build
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Then query
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "query",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "example",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("scen:example-build"));
+}
+
+#[test]
+fn test_build_then_trace() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    // First build
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["build", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Then trace
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "trace",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root: scen:example-build"));
+}
+
+#[test]
+fn test_multiple_formats_build() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let output_dir = temp_dir.path().join(".atlas");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "build",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--out-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Verify both formats were created
+    assert!(
+        output_dir.join("atlas.json").exists(),
+        "atlas.json not found in {:?}",
+        output_dir
+    );
+    assert!(
+        output_dir.join("atlas.md").exists(),
+        "atlas.md not found in {:?}",
+        output_dir
+    );
 }

@@ -1,0 +1,73 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: json_output
+---
+{
+  "schema_version": 1,
+  "tool_version": "0.1.0",
+  "repo": {
+    "name": "requirement-unproven"
+  },
+  "nodes": [
+    {
+      "id": "crate:engine",
+      "kind": "crate",
+      "role": "infra",
+      "title": "engine",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "crates/engine"
+        }
+      ],
+      "touches": [],
+      "attrs": {
+        "manifest_path": "crates/engine/Cargo.toml",
+        "version": "0.1.0"
+      },
+      "provenance": {
+        "source": "Cargo.toml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "req:unproven",
+      "kind": "requirement",
+      "role": "behavior",
+      "title": "Unproven requirement",
+      "summary": null,
+      "owns": [],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    }
+  ],
+  "edges": [],
+  "diagnostics": [
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `req:unproven` has no relationships in the graph",
+      "subject": "req:unproven",
+      "location": {
+        "path": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    }
+  ],
+  "metrics": {
+    "node_count": 2,
+    "edge_count": 0,
+    "diagnostic_count": 1,
+    "error_count": 0,
+    "warning_count": 1
+  }
+}
