@@ -299,42 +299,41 @@ warnings_as_errors = true
             let content = match args.kind {
                 ScaffoldKind::Scenario => format!(
                     r#"nodes:
-            - id: {id}
-            kind: scenario
-            title: {id}
-            summary: |
-            Enter scenario summary here.
-            paths:
-            - "tests/*.rs"
-            edges:
-            - from: {id}
-            kind: exercises
-            to: crate:TODO
-            - from: {id}
-            kind: runs_with
-            to: cmd:TODO
-            "#
+  - id: {id}
+    kind: scenario
+    title: {id}
+    summary: |
+      Enter scenario summary here.
+    touches:
+      - "tests/*.rs"
+edges:
+  - from: {id}
+    kind: exercises
+    to: crate:TODO
+  - from: {id}
+    kind: runs_with
+    to: cmd:TODO
+"#
                 ),
                 ScaffoldKind::Artifact => format!(
                     r#"nodes:
-            - id: {id}
-            kind: artifact
-            title: {id}
-            summary: |
-            Enter artifact summary here.
-            "#
+  - id: {id}
+    kind: artifact
+    title: {id}
+    summary: |
+      Enter artifact summary here.
+"#
                 ),
                 ScaffoldKind::Requirement => format!(
                     r#"nodes:
-            - id: {id}
-            kind: requirement
-            title: {id}
-            summary: |
-            Enter requirement summary here.
-            "#
+  - id: {id}
+    kind: requirement
+    title: {id}
+    summary: |
+      Enter requirement summary here.
+"#
                 ),
             };
-
             let kind_name = match args.kind {
                 ScaffoldKind::Scenario => "scenario",
                 ScaffoldKind::Artifact => "artifact",
@@ -755,9 +754,16 @@ fn print_why(outcome: &atlasctl_app::WhyOutcome) {
     }
     println!("Source: {}", response.root.provenance.source);
 
-    if !response.root.paths.is_empty() {
-        println!("Paths:");
-        for p in &response.root.paths {
+    if !response.root.owns.is_empty() {
+        println!("Owns:");
+        for p in &response.root.owns {
+            println!("  - {}", p.pattern);
+        }
+    }
+
+    if !response.root.touches.is_empty() {
+        println!("Touches:");
+        for p in &response.root.touches {
             println!("  - {}", p.pattern);
         }
     }

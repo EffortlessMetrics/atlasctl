@@ -294,7 +294,7 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
         WhySubject::Path(path) => {
             // Find nodes that have a selector matching this path
             graph.nodes.iter().find(|n| {
-                n.paths.iter().any(|p| {
+                n.all_paths().any(|p| {
                     let pattern = p.pattern.replace('\\', "/");
                     let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
                         .ok()
@@ -323,7 +323,8 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
                 | EdgeKind::Exercises
                 | EdgeKind::RunsWith
                 | EdgeKind::Documents
-                | EdgeKind::BelongsTo => {
+                | EdgeKind::BelongsTo
+                | EdgeKind::Supports => {
                     if let Some(node) = graph.nodes.iter().find(|n| n.id == edge.from)
                         && visited.insert(node.id.clone())
                     {
@@ -368,7 +369,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     for changed in &request.paths {
         let mut found_any = false;
         for node in &graph.nodes {
-            for selector in &node.paths {
+            for selector in node.all_paths() {
                 let pattern = selector.pattern.replace('\\', "/");
                 let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
                     .ok()
@@ -482,7 +483,12 @@ fn validate_completeness(
 
     for node in nodes {
         let has_any_edge = outgoing.contains_key(&node.id) || incoming.contains_key(&node.id);
-        if !has_any_edge {
+
+        // Infra nodes like crates and operational commands are allowed to be loosely coupled
+        if !has_any_edge
+            && node.kind.role() != atlasctl_types::NodeRole::Infra
+            && node.kind != NodeKind::Command
+        {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::OrphanNode,
                 format!("node `{}` has no relationships in the graph", node.id),
@@ -622,10 +628,12 @@ mod tests {
     fn node(id: &str, kind: NodeKind) -> AtlasNode {
         AtlasNode {
             id: AtlasId::parse(id).expect("valid id"),
+            role: kind.role(),
             kind,
             title: id.to_string(),
             summary: None,
-            paths: vec![PathSelector::new("src/lib.rs")],
+            owns: vec![PathSelector::new("src/lib.rs")],
+            touches: Vec::new(),
             attrs: BTreeMap::new(),
             provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
         }
@@ -1334,10 +1342,12 @@ mod tests {
             };
             AtlasNode {
                 id,
+                role: kind.role(),
                 kind,
                 title: id_str.clone(),
                 summary: None,
-                paths: vec![PathSelector::new("src/lib.rs")],
+                owns: vec![PathSelector::new("src/lib.rs")],
+                touches: Vec::new(),
                 attrs: BTreeMap::new(),
                 provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
             }
@@ -1459,9 +1469,11 @@ mod tests {
         let node1 = AtlasNode {
             id: dup_id.clone(),
             kind: NodeKind::Requirement,
+            role: NodeKind::Requirement.role(),
             title: "First".to_string(),
             summary: None,
-            paths: vec![PathSelector::new("src/first.rs")],
+            owns: vec![PathSelector::new("src/first.rs")],
+            touches: Vec::new(),
             attrs: BTreeMap::new(),
             provenance: Provenance::new(RepoRelativePath::new("atlas/first.atlas.yaml")),
         };
@@ -1469,9 +1481,11 @@ mod tests {
         let node2 = AtlasNode {
             id: dup_id.clone(),
             kind: NodeKind::Requirement,
+            role: NodeKind::Requirement.role(),
             title: "Second".to_string(),
             summary: None,
-            paths: vec![PathSelector::new("src/second.rs")],
+            owns: vec![PathSelector::new("src/second.rs")],
+            touches: Vec::new(),
             attrs: BTreeMap::new(),
             provenance: Provenance::new(RepoRelativePath::new("atlas/second.atlas.yaml")),
         };
@@ -1542,9 +1556,11 @@ mod tests {
                 Some(AtlasNode {
                     id: id.clone(),
                     kind: NodeKind::Requirement,
+                    role: NodeKind::Requirement.role(),
                     title: format!("Title for {}", id_str),
                     summary: Some(format!("Summary for {}", id_str)),
-                    paths: vec![PathSelector::new("src/lib.rs")],
+                    owns: vec![PathSelector::new("src/lib.rs")],
+                    touches: Vec::new(),
                     attrs: BTreeMap::new(),
                     provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
                 })
@@ -1604,9 +1620,11 @@ mod tests {
                 Some(AtlasNode {
                     id: id.clone(),
                     kind: NodeKind::Requirement,
+                    role: NodeKind::Requirement.role(),
                     title: id_str.clone(),
                     summary: None,
-                    paths: vec![PathSelector::new("src/lib.rs")],
+                    owns: vec![PathSelector::new("src/lib.rs")],
+                    touches: Vec::new(),
                     attrs: BTreeMap::new(),
                     provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
                 })
@@ -1690,9 +1708,11 @@ mod tests {
                 Some(AtlasNode {
                     id: id.clone(),
                     kind,
+                    role: kind.role(),
                     title: id_str.clone(),
                     summary: None,
-                    paths: vec![PathSelector::new("src/lib.rs")],
+                    owns: vec![PathSelector::new("src/lib.rs")],
+                    touches: Vec::new(),
                     attrs: BTreeMap::new(),
                     provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
                 })
@@ -1814,7 +1834,7 @@ mod golden {
     fn portability_slashes_are_normalized() {
         let graph = build_atlas("valid-minimal");
         for node in &graph.nodes {
-            for path in &node.paths {
+            for path in node.all_paths() {
                 assert!(
                     !path.pattern.contains('\\'),
                     "Path selector contains backslash: {}",

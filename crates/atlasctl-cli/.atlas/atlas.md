@@ -1,8 +1,4 @@
----
-source: crates/atlasctl-core/src/lib.rs
-expression: md_output
----
-# Atlas: valid-minimal
+# Atlas: .tmpxQv3b0
 
 ## Summary
 
@@ -23,13 +19,13 @@ expression: md_output
 
 - `adr:0001-example` — Example ADR
   - Source: `docs/adr/0001-example.md`
-  - Owns: `docs/adr/0001-example.md`
+  - Paths: `docs/adr/0001-example.md`
 
 ### scenario
 
 - `scen:example-build` — Example build
   - Source: `atlas/example.atlas.yaml`
-  - Owns: `crates/engine/src/lib.rs`
+  - Paths: `crates/engine/src/lib.rs`
 
 ### command
 
@@ -45,7 +41,7 @@ expression: md_output
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Owns: `crates/engine`
+  - Paths: `crates/engine`
 
 ## Edges
 

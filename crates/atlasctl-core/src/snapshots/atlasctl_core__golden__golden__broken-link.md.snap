@@ -10,7 +10,7 @@ expression: md_output
 - Tool version: `0.1.0`
 - Nodes: `2`
 - Edges: `0`
-- Diagnostics: `5` (errors: `3`, warnings: `2`)
+- Diagnostics: `4` (errors: `3`, warnings: `1`)
 
 ## Nodes by kind
 
@@ -23,7 +23,7 @@ expression: md_output
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Paths: `crates/engine`
+  - Owns: `crates/engine`
 
 ## Edges
 
@@ -39,9 +39,6 @@ expression: md_output
 - [error] `command_referenced_but_undeclared` — edge `scen:broken` -> `cmd:missing` references missing target node `cmd:missing`
   - Subject: `cmd:missing`
   - Location: `atlas/example.atlas.yaml`
-- [warning] `orphan_node` — node `crate:engine` has no relationships in the graph
-  - Subject: `crate:engine`
-  - Location: `Cargo.toml`
 - [warning] `orphan_node` — node `scen:broken` has no relationships in the graph
   - Subject: `scen:broken`
   - Location: `atlas/example.atlas.yaml`

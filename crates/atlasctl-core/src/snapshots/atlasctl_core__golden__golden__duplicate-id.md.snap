@@ -10,7 +10,7 @@ expression: md_output
 - Tool version: `0.1.0`
 - Nodes: `2`
 - Edges: `0`
-- Diagnostics: `3` (errors: `1`, warnings: `2`)
+- Diagnostics: `2` (errors: `1`, warnings: `1`)
 
 ## Nodes by kind
 
@@ -23,7 +23,7 @@ expression: md_output
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Paths: `crates/engine`
+  - Owns: `crates/engine`
 
 ## Edges
 
@@ -33,9 +33,6 @@ expression: md_output
 - [error] `duplicate_id` — duplicate atlas id `req:example` declared in both `atlas/example.atlas.yaml` and `atlas/example.atlas.yaml`
   - Subject: `req:example`
   - Location: `atlas/example.atlas.yaml`
-- [warning] `orphan_node` — node `crate:engine` has no relationships in the graph
-  - Subject: `crate:engine`
-  - Location: `Cargo.toml`
 - [warning] `orphan_node` — node `req:example` has no relationships in the graph
   - Subject: `req:example`
   - Location: `atlas/example.atlas.yaml`

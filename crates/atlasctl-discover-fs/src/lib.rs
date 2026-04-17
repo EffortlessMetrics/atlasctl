@@ -346,6 +346,10 @@ struct RawNode {
     #[serde(default)]
     paths: Vec<String>,
     #[serde(default)]
+    owns: Vec<String>,
+    #[serde(default)]
+    touches: Vec<String>,
+    #[serde(default)]
     attrs: BTreeMap<String, Value>,
 }
 
@@ -426,6 +430,10 @@ struct RawFrontmatterAtlas {
     #[serde(default)]
     paths: Vec<String>,
     #[serde(default)]
+    owns: Vec<String>,
+    #[serde(default)]
+    touches: Vec<String>,
+    #[serde(default)]
     attrs: BTreeMap<String, Value>,
     #[serde(default)]
     explains: Vec<String>,
@@ -443,6 +451,8 @@ struct RawFrontmatterAtlas {
     documents: Vec<String>,
     #[serde(default)]
     belongs_to: Vec<String>,
+    #[serde(default)]
+    supports: Vec<String>,
 }
 
 fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
@@ -513,11 +523,15 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         kind,
         title,
         summary: raw.summary,
-        paths: if raw.paths.is_empty() {
-            vec![rel_path.as_str().to_string()]
-        } else {
+        paths: Vec::new(),
+        owns: if !raw.owns.is_empty() {
+            raw.owns
+        } else if !raw.paths.is_empty() {
             raw.paths
+        } else {
+            vec![rel_path.as_str().to_string()]
         },
+        touches: raw.touches,
         attrs: raw.attrs,
     };
 
@@ -549,6 +563,9 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     }
     for target in raw.belongs_to {
         push_frontmatter_edge(&mut batch, &id, EdgeKind::BelongsTo, &target, rel_path);
+    }
+    for target in raw.supports {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Supports, &target, rel_path);
     }
 
     batch
@@ -606,12 +623,19 @@ fn parse_node(
     let mut provenance = Provenance::new(RepoRelativePath::new(rel_path.as_str()));
     provenance.fragment = fragment;
 
+    let mut owns = raw.owns;
+    if owns.is_empty() {
+        owns = raw.paths;
+    }
+
     Ok(AtlasNode {
         id,
+        role: kind.role(),
         kind,
         title: raw.title,
         summary: raw.summary,
-        paths: raw.paths.into_iter().map(PathSelector::new).collect(),
+        owns: owns.into_iter().map(PathSelector::new).collect(),
+        touches: raw.touches.into_iter().map(PathSelector::new).collect(),
         attrs: raw.attrs,
         provenance,
     })
@@ -678,10 +702,11 @@ fn validate_selectors(
     let mut file_owners: BTreeMap<String, Vec<AtlasId>> = BTreeMap::new();
 
     for node in nodes {
-        for selector in &node.paths {
+        // Validation for exclusive ownership
+        for selector in &node.owns {
             let pattern = RepoRelativePath::new(selector.pattern.clone());
             let glob = match Glob::new(pattern.as_str()) {
-                Ok(glob) => glob.compile_matcher(),
+                Ok(g) => g.compile_matcher(),
                 Err(err) => {
                     diagnostics.push(AtlasDiagnostic::new(
                         DiagnosticCode::InvalidPath,
@@ -698,7 +723,6 @@ fn validate_selectors(
 
             let mut matched = false;
             for path in &all_paths {
-                // Ensure we compare with forward slashes
                 let path_str = path.as_str().replace('\\', "/");
                 if glob.is_match(&path_str) {
                     matched = true;
@@ -713,6 +737,41 @@ fn validate_selectors(
                 diagnostics.push(AtlasDiagnostic::new(
                     DiagnosticCode::DeadSelector,
                     format!("path selector `{}` matches no files", selector.pattern),
+                    Some(node.id.clone()),
+                    Some(node.provenance.location()),
+                ));
+            }
+        }
+
+        // Validation for non-exclusive participation (just check for dead selectors)
+        for selector in &node.touches {
+            let pattern = RepoRelativePath::new(selector.pattern.clone());
+            let glob = match Glob::new(pattern.as_str()) {
+                Ok(g) => g.compile_matcher(),
+                Err(err) => {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::InvalidPath,
+                        format!(
+                            "invalid path selector pattern `{}`: {}",
+                            selector.pattern, err
+                        ),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
+                    continue;
+                }
+            };
+
+            let matched = all_paths
+                .iter()
+                .any(|p| glob.is_match(p.as_str().replace('\\', "/")));
+            if !matched {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::DeadSelector,
+                    format!(
+                        "participation path selector `{}` matches no files",
+                        selector.pattern
+                    ),
                     Some(node.id.clone()),
                     Some(node.provenance.location()),
                 ));
@@ -825,9 +884,11 @@ fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
         batch.nodes.push(AtlasNode {
             id: crate_id,
             kind: NodeKind::Crate,
+            role: NodeKind::Crate.role(),
             title: package.name,
             summary: None,
-            paths: vec![PathSelector::new(rel_dir.as_str())],
+            owns: vec![PathSelector::new(rel_dir.as_str())],
+            touches: Vec::new(),
             attrs,
             provenance: Provenance::new(RepoRelativePath::new("Cargo.toml")),
         });

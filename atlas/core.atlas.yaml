@@ -18,26 +18,32 @@ nodes:
     kind: scenario
     title: Build emits canonical atlas
     summary: The build command compiles the repo into atlas.json and atlas.md.
-    paths:
-      - crates/atlasctl-cli/src/main.rs
+    owns:
       - crates/atlasctl-render/src/lib.rs
+    touches:
+      - crates/atlasctl-cli/src/main.rs
 
   - id: scen:check-fails-on-broken-links
     kind: scenario
     title: Check fails on broken links
     summary: Structural validation rejects broken graph references.
-    paths:
+    owns:
       - crates/atlasctl-core/src/lib.rs
 
   - id: scen:query-and-trace-navigate-behavior
     kind: scenario
     title: Query and trace navigate behavior
     summary: Query and trace expose the atlas as a navigation layer.
+    touches:
+      - crates/atlasctl-core/src/lib.rs
+      - crates/atlasctl-cli/src/main.rs
 
   - id: scen:automated-scaffolding-reduces-friction
     kind: scenario
     title: Automated scaffolding reduces friction
     summary: The init and scaffold commands generate valid atlas metadata.
+    touches:
+      - crates/atlasctl-cli/src/main.rs
 
   - id: scen:full-release-verification
     kind: scenario

@@ -12,9 +12,11 @@ expression: json_output
     {
       "id": "cmd:ci",
       "kind": "command",
+      "role": "command",
       "title": "CI command",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/drift.atlas.yaml",
@@ -26,9 +28,11 @@ expression: json_output
     {
       "id": "cmd:stale",
       "kind": "command",
+      "role": "command",
       "title": "Stale command",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/drift.atlas.yaml",
@@ -40,13 +44,15 @@ expression: json_output
     {
       "id": "crate:engine",
       "kind": "crate",
+      "role": "infra",
       "title": "engine",
       "summary": null,
-      "paths": [
+      "owns": [
         {
           "pattern": "crates/engine"
         }
       ],
+      "touches": [],
       "attrs": {
         "manifest_path": "crates/engine/Cargo.toml",
         "version": "0.1.0"
@@ -61,13 +67,15 @@ expression: json_output
     {
       "id": "req:dead",
       "kind": "requirement",
+      "role": "behavior",
       "title": "Dead selector",
       "summary": null,
-      "paths": [
+      "owns": [
         {
           "pattern": "nonexistent/*"
         }
       ],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/drift.atlas.yaml",
@@ -79,9 +87,11 @@ expression: json_output
     {
       "id": "req:orphan",
       "kind": "requirement",
+      "role": "behavior",
       "title": "Orphan node",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/drift.atlas.yaml",
@@ -93,9 +103,11 @@ expression: json_output
     {
       "id": "scen:valid",
       "kind": "scenario",
+      "role": "proof",
       "title": "Valid scenario",
       "summary": null,
-      "paths": [],
+      "owns": [],
+      "touches": [],
       "attrs": {},
       "provenance": {
         "source": "atlas/drift.atlas.yaml",
@@ -135,17 +147,6 @@ expression: json_output
       "severity": "warning",
       "message": "path selector `nonexistent/*` matches no files",
       "subject": "req:dead",
-      "location": {
-        "path": "atlas/drift.atlas.yaml",
-        "line": null,
-        "column": null
-      }
-    },
-    {
-      "code": "orphan_node",
-      "severity": "warning",
-      "message": "node `cmd:stale` has no relationships in the graph",
-      "subject": "cmd:stale",
       "location": {
         "path": "atlas/drift.atlas.yaml",
         "line": null,
@@ -200,8 +201,8 @@ expression: json_output
   "metrics": {
     "node_count": 6,
     "edge_count": 2,
-    "diagnostic_count": 6,
+    "diagnostic_count": 5,
     "error_count": 0,
-    "warning_count": 5
+    "warning_count": 4
   }
 }

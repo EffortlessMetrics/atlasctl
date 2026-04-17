@@ -244,9 +244,16 @@ fn render_why_markdown(response: &WhyResponse) -> String {
         out.push_str(&format!("\n## Summary\n\n{}\n", summary));
     }
 
-    if !response.root.paths.is_empty() {
-        out.push_str("\n## Paths\n\n");
-        for path in &response.root.paths {
+    if !response.root.owns.is_empty() {
+        out.push_str("\n## Owns\n\n");
+        for path in &response.root.owns {
+            out.push_str(&format!("- `{}`\n", path.pattern));
+        }
+    }
+
+    if !response.root.touches.is_empty() {
+        out.push_str("\n## Touches\n\n");
+        for path in &response.root.touches {
             out.push_str(&format!("- `{}`\n", path.pattern));
         }
     }
@@ -277,14 +284,23 @@ fn render_node(node: &AtlasNode, out: &mut String) {
     if let Some(summary) = &node.summary {
         out.push_str(&format!("  - Summary: {}\n", summary));
     }
-    if !node.paths.is_empty() {
+    if !node.owns.is_empty() {
         let joined = node
-            .paths
+            .owns
             .iter()
             .map(|path| format!("`{}`", path.pattern))
             .collect::<Vec<_>>()
             .join(", ");
-        out.push_str(&format!("  - Paths: {}\n", joined));
+        out.push_str(&format!("  - Owns: {}\n", joined));
+    }
+    if !node.touches.is_empty() {
+        let joined = node
+            .touches
+            .iter()
+            .map(|path| format!("`{}`", path.pattern))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("  - Touches: {}\n", joined));
     }
     out.push('\n');
 }

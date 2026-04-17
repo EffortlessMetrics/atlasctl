@@ -1,0 +1,179 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ImpactResponse",
+  "type": "object",
+  "required": [
+    "impacted",
+    "uncovered"
+  ],
+  "properties": {
+    "impacted": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ImpactHit"
+      }
+    },
+    "uncovered": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ChangedPath"
+      }
+    }
+  },
+  "definitions": {
+    "AtlasNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "provenance",
+        "role",
+        "title"
+      ],
+      "properties": {
+        "attrs": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": true
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/NodeKind"
+        },
+        "owns": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PathSelector"
+          }
+        },
+        "provenance": {
+          "$ref": "#/definitions/Provenance"
+        },
+        "role": {
+          "$ref": "#/definitions/NodeRole"
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "touches": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PathSelector"
+          }
+        }
+      }
+    },
+    "ChangedPath": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "ImpactHit": {
+      "type": "object",
+      "required": [
+        "node",
+        "reason"
+      ],
+      "properties": {
+        "node": {
+          "$ref": "#/definitions/AtlasNode"
+        },
+        "owners": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "NodeKind": {
+      "type": "string",
+      "enum": [
+        "requirement",
+        "adr",
+        "guide",
+        "scenario",
+        "fixture",
+        "command",
+        "artifact",
+        "crate",
+        "document"
+      ]
+    },
+    "NodeRole": {
+      "type": "string",
+      "enum": [
+        "behavior",
+        "proof",
+        "document",
+        "artifact",
+        "command",
+        "infra"
+      ]
+    },
+    "PathSelector": {
+      "type": "object",
+      "required": [
+        "pattern"
+      ],
+      "properties": {
+        "pattern": {
+          "type": "string"
+        }
+      }
+    },
+    "Provenance": {
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "fragment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "source": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -10,7 +10,7 @@ expression: md_output
 - Tool version: `0.1.0`
 - Nodes: `6`
 - Edges: `2`
-- Diagnostics: `6` (errors: `0`, warnings: `5`)
+- Diagnostics: `5` (errors: `0`, warnings: `4`)
 
 ## Nodes by kind
 
@@ -18,7 +18,7 @@ expression: md_output
 
 - `req:dead` — Dead selector
   - Source: `atlas/drift.atlas.yaml`
-  - Paths: `nonexistent/*`
+  - Owns: `nonexistent/*`
 
 - `req:orphan` — Orphan node
   - Source: `atlas/drift.atlas.yaml`
@@ -40,7 +40,7 @@ expression: md_output
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Paths: `crates/engine`
+  - Owns: `crates/engine`
 
 ## Edges
 
@@ -51,9 +51,6 @@ expression: md_output
 
 - [warning] `dead_selector` — path selector `nonexistent/*` matches no files
   - Subject: `req:dead`
-  - Location: `atlas/drift.atlas.yaml`
-- [warning] `orphan_node` — node `cmd:stale` has no relationships in the graph
-  - Subject: `cmd:stale`
   - Location: `atlas/drift.atlas.yaml`
 - [warning] `orphan_node` — node `req:dead` has no relationships in the graph
   - Subject: `req:dead`

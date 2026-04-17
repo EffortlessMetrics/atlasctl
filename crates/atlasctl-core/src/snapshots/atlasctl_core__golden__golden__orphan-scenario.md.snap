@@ -10,7 +10,7 @@ expression: md_output
 - Tool version: `0.1.0`
 - Nodes: `2`
 - Edges: `0`
-- Diagnostics: `4` (errors: `2`, warnings: `2`)
+- Diagnostics: `3` (errors: `2`, warnings: `1`)
 
 ## Nodes by kind
 
@@ -23,7 +23,7 @@ expression: md_output
 
 - `crate:engine` — engine
   - Source: `Cargo.toml`
-  - Paths: `crates/engine`
+  - Owns: `crates/engine`
 
 ## Edges
 
@@ -36,9 +36,6 @@ expression: md_output
 - [error] `scenario_missing_crate` — scenario `scen:lonely` does not declare an exercised crate
   - Subject: `scen:lonely`
   - Location: `atlas/example.atlas.yaml`
-- [warning] `orphan_node` — node `crate:engine` has no relationships in the graph
-  - Subject: `crate:engine`
-  - Location: `Cargo.toml`
 - [warning] `orphan_node` — node `scen:lonely` has no relationships in the graph
   - Subject: `scen:lonely`
   - Location: `atlas/example.atlas.yaml`
