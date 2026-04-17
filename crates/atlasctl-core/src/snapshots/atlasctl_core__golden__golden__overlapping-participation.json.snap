@@ -1,0 +1,245 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: json_output
+---
+{
+  "schema_version": 1,
+  "tool_version": "0.1.0",
+  "repo": {
+    "name": "overlapping-participation"
+  },
+  "nodes": [
+    {
+      "id": "cmd:test",
+      "kind": "command",
+      "role": "command",
+      "title": "Test command",
+      "summary": null,
+      "owns": [],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "crate:engine",
+      "kind": "crate",
+      "role": "infra",
+      "title": "engine",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "crates/engine"
+        }
+      ],
+      "touches": [],
+      "attrs": {
+        "manifest_path": "crates/engine/Cargo.toml",
+        "version": "0.1.0"
+      },
+      "provenance": {
+        "source": "Cargo.toml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "scen:four",
+      "kind": "scenario",
+      "role": "proof",
+      "title": "Scenario Four",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "crates/engine/src/lib.rs"
+        }
+      ],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "scen:one",
+      "kind": "scenario",
+      "role": "proof",
+      "title": "Scenario One",
+      "summary": null,
+      "owns": [],
+      "touches": [
+        {
+          "pattern": "crates/engine/src/lib.rs"
+        }
+      ],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "scen:three",
+      "kind": "scenario",
+      "role": "proof",
+      "title": "Scenario Three",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "crates/engine/src/lib.rs"
+        }
+      ],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "scen:two",
+      "kind": "scenario",
+      "role": "proof",
+      "title": "Scenario Two",
+      "summary": null,
+      "owns": [],
+      "touches": [
+        {
+          "pattern": "crates/engine/src/lib.rs"
+        }
+      ],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "scen:four",
+      "kind": "runs_with",
+      "to": "cmd:test",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:four",
+      "kind": "exercises",
+      "to": "crate:engine",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:one",
+      "kind": "runs_with",
+      "to": "cmd:test",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:one",
+      "kind": "exercises",
+      "to": "crate:engine",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:three",
+      "kind": "runs_with",
+      "to": "cmd:test",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:three",
+      "kind": "exercises",
+      "to": "crate:engine",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:two",
+      "kind": "runs_with",
+      "to": "cmd:test",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:two",
+      "kind": "exercises",
+      "to": "crate:engine",
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "duplicate_ownership",
+      "severity": "error",
+      "message": "path `crates/engine/src/lib.rs` is claimed by multiple nodes: scen:four, scen:three",
+      "subject": "scen:four",
+      "location": null
+    },
+    {
+      "code": "duplicate_ownership",
+      "severity": "error",
+      "message": "path `crates/engine/src/lib.rs` is claimed by multiple nodes: scen:four, scen:three",
+      "subject": "scen:three",
+      "location": null
+    }
+  ],
+  "metrics": {
+    "node_count": 6,
+    "edge_count": 8,
+    "diagnostic_count": 2,
+    "error_count": 2,
+    "warning_count": 0
+  }
+}

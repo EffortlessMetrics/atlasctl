@@ -1,0 +1,19 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md
+---
+# Why: `scen:example-build`
+
+- **Title**: Example build
+- **Kind**: `scenario`
+- **Source**: `atlas/example.atlas.yaml`
+
+## Owns
+
+- `crates/engine/src/lib.rs`
+
+## Proof Chain
+
+- `scen:example-build` is exercised by `cmd:ci-fast` (via `runs_with`)
+- `scen:example-build` is exercised by `artifact:example-report` (via `emits`)
+- `scen:example-build` is exercised by `crate:engine` (via `exercises`)

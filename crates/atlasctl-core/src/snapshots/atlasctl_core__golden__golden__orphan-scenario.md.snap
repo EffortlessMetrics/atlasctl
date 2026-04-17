@@ -12,6 +12,12 @@ expression: md_output
 - Edges: `0`
 - Diagnostics: `3` (errors: `2`, warnings: `1`)
 
+## Scenario Index
+
+| Scenario | Proves | Exercises |
+| --- | --- | --- |
+| `scen:lonely` |  |  |
+
 ## Nodes by kind
 
 ### scenario

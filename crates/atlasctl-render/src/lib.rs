@@ -2,7 +2,8 @@
 
 use atlasctl_ports::{RenderError, RenderPort};
 use atlasctl_types::{
-    AtlasDiagnostic, AtlasGraph, AtlasNode, ImpactResponse, NodeKind, RenderFormat, WhyResponse,
+    AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactResponse, NodeKind, RenderFormat,
+    WhyResponse,
 };
 
 #[derive(Debug, Default)]
@@ -64,6 +65,42 @@ fn render_markdown(graph: &AtlasGraph) -> String {
         "- Diagnostics: `{}` (errors: `{}`, warnings: `{}`)\n\n",
         graph.metrics.diagnostic_count, graph.metrics.error_count, graph.metrics.warning_count
     ));
+
+    out.push_str("## Scenario Index\n\n");
+    let scenarios: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == NodeKind::Scenario)
+        .collect();
+
+    if scenarios.is_empty() {
+        out.push_str("_No scenarios defined._\n\n");
+    } else {
+        out.push_str("| Scenario | Proves | Exercises |\n");
+        out.push_str("| --- | --- | --- |\n");
+        for scen in scenarios {
+            let proves: Vec<_> = graph
+                .edges
+                .iter()
+                .filter(|e| e.from == scen.id && e.kind == EdgeKind::Proves)
+                .map(|e| format!("`{}`", e.to))
+                .collect();
+            let exercises: Vec<_> = graph
+                .edges
+                .iter()
+                .filter(|e| e.from == scen.id && e.kind == EdgeKind::Exercises)
+                .map(|e| format!("`{}`", e.to))
+                .collect();
+
+            out.push_str(&format!(
+                "| `{}` | {} | {} |\n",
+                scen.id,
+                proves.join(", "),
+                exercises.join(", ")
+            ));
+        }
+        out.push('\n');
+    }
 
     out.push_str("## Nodes by kind\n\n");
     for kind in [

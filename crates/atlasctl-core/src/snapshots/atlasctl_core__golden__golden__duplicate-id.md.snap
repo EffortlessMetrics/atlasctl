@@ -12,6 +12,10 @@ expression: md_output
 - Edges: `0`
 - Diagnostics: `2` (errors: `1`, warnings: `1`)
 
+## Scenario Index
+
+_No scenarios defined._
+
 ## Nodes by kind
 
 ### requirement

@@ -12,6 +12,12 @@ expression: md_output
 - Edges: `2`
 - Diagnostics: `5` (errors: `0`, warnings: `4`)
 
+## Scenario Index
+
+| Scenario | Proves | Exercises |
+| --- | --- | --- |
+| `scen:valid` |  | `crate:engine` |
+
 ## Nodes by kind
 
 ### requirement

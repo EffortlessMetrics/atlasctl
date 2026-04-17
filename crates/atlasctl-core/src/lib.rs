@@ -1809,6 +1809,7 @@ mod golden {
         "markdown-frontmatter",
         "doctor-drift",
         "requirement-unproven",
+        "overlapping-participation",
     ];
 
     fn build_atlas(name: &str) -> AtlasGraph {
@@ -1986,5 +1987,57 @@ mod golden {
 
             insta::assert_snapshot!(format!("golden/{}.md", fixture), md_output);
         }
+    }
+
+    #[test]
+    fn golden_why_output() {
+        let renderer = AtlasRenderer;
+        let graph = build_atlas("valid-minimal");
+        let id = AtlasId::parse("scen:example-build").unwrap();
+        let request = WhyRequest {
+            subject: WhySubject::Id(id),
+        };
+        let response = why_graph(&graph, &request).expect("response");
+
+        let md = renderer
+            .render_why(&response, RenderFormat::Markdown)
+            .unwrap();
+        insta::assert_snapshot!("golden/why.md", md);
+
+        let json = renderer.render_why(&response, RenderFormat::Json).unwrap();
+        insta::assert_snapshot!("golden/why.json", json);
+    }
+
+    #[test]
+    fn golden_impact_output() {
+        let renderer = AtlasRenderer;
+        let graph = build_atlas("valid-minimal");
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/engine/src/lib.rs".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        let md = renderer
+            .render_impact(&response, RenderFormat::Markdown)
+            .unwrap();
+        insta::assert_snapshot!("golden/impact.md", md);
+
+        let json = renderer
+            .render_impact(&response, RenderFormat::Json)
+            .unwrap();
+        insta::assert_snapshot!("golden/impact.json", json);
+
+        let summary = renderer
+            .render_impact(&response, RenderFormat::GitHubSummary)
+            .unwrap();
+        insta::assert_snapshot!("golden/impact-summary.md", summary);
+
+        let packet = renderer
+            .render_impact(&response, RenderFormat::ReviewPacket)
+            .unwrap();
+        insta::assert_snapshot!("golden/impact-packet.md", packet);
     }
 }
