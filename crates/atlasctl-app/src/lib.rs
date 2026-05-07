@@ -1,103 +1,48 @@
 #![forbid(unsafe_code)]
 
 use atlasctl_codes::Severity;
-use atlasctl_core::{compile_atlas, query_graph, trace_graph};
-use atlasctl_ports::{DiscoverRequest, DiscoveryError, DiscoveryPort, RenderError, RenderPort};
+use atlasctl_core::{compile_atlas, impacted_graph, query_graph, trace_graph, why_graph};
+use atlasctl_ports::{
+    DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
+    RenderError, RenderPort,
+};
 use atlasctl_types::{
-    AtlasGraph, QueryRequest, QueryResponse, RenderFormat, TraceRequest, TraceResponse,
-    ValidationProfile,
+    AtlasGraph, ChangedPath, ImpactRequest, ImpactResponse, QueryRequest, QueryResponse,
+    RenderFormat, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse,
 };
 use camino::Utf8PathBuf;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
-#[derive(Debug, Clone)]
-pub struct CompileOptions {
-    pub repo_root: Utf8PathBuf,
-    pub config_path: Option<Utf8PathBuf>,
-    pub profile: ValidationProfile,
+pub struct AtlasService<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> {
+    pub discovery: D,
+    pub renderer: R,
+    pub diff: G,
+    pub owners: O,
 }
 
-#[derive(Debug, Clone)]
-pub struct BuildOptions {
-    pub compile: CompileOptions,
-    pub formats: Vec<RenderFormat>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BuildOutcome {
-    pub graph: AtlasGraph,
-    pub rendered: BTreeMap<RenderFormat, String>,
-    pub has_errors: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct CheckOutcome {
-    pub graph: AtlasGraph,
-    pub has_errors: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct QueryOptions {
-    pub compile: CompileOptions,
-    pub request: QueryRequest,
-}
-
-#[derive(Debug, Clone)]
-pub struct QueryOutcome {
-    pub graph: AtlasGraph,
-    pub response: QueryResponse,
-}
-
-#[derive(Debug, Clone)]
-pub struct TraceOptions {
-    pub compile: CompileOptions,
-    pub request: TraceRequest,
-}
-
-#[derive(Debug, Clone)]
-pub struct TraceOutcome {
-    pub graph: AtlasGraph,
-    pub response: Option<TraceResponse>,
-}
-
-#[derive(Debug, Error)]
-pub enum AppError {
-    #[error(transparent)]
-    Discovery(#[from] DiscoveryError),
-    #[error(transparent)]
-    Render(#[from] RenderError),
-}
-
-pub struct AtlasService<D, R> {
-    discovery: D,
-    renderer: R,
-}
-
-impl<D, R> AtlasService<D, R> {
-    pub fn new(discovery: D, renderer: R) -> Self {
-        Self { discovery, renderer }
+impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D, R, G, O> {
+    pub fn new(discovery: D, renderer: R, diff: G, owners: O) -> Self {
+        Self {
+            discovery,
+            renderer,
+            diff,
+            owners,
+        }
     }
-}
 
-impl<D, R> AtlasService<D, R>
-where
-    D: DiscoveryPort,
-    R: RenderPort,
-{
     pub fn build(&self, options: &BuildOptions) -> Result<BuildOutcome, AppError> {
         let graph = self.compile(&options.compile)?;
-        let mut rendered = BTreeMap::new();
-
-        for format in &options.formats {
-            let text = self.renderer.render(&graph, *format)?;
-            rendered.insert(*format, text);
-        }
-
         let has_errors = graph
             .diagnostics
             .iter()
             .any(|diag| diag.severity == Severity::Error);
+
+        let mut rendered = BTreeMap::new();
+        for format in &options.formats {
+            let content = self.renderer.render(&graph, *format)?;
+            rendered.insert(*format, content);
+        }
 
         Ok(BuildOutcome {
             graph,
@@ -116,6 +61,12 @@ where
         Ok(CheckOutcome { graph, has_errors })
     }
 
+    pub fn doctor(&self, options: &CompileOptions) -> Result<CheckOutcome, AppError> {
+        // For now, doctor is a semantic alias for check,
+        // as all doctor rules are integrated into discovery and compilation.
+        self.check(options)
+    }
+
     pub fn query(&self, options: &QueryOptions) -> Result<QueryOutcome, AppError> {
         let graph = self.compile(&options.compile)?;
         let response = query_graph(&graph, &options.request);
@@ -130,6 +81,33 @@ where
         Ok(TraceOutcome { graph, response })
     }
 
+    pub fn why(&self, options: &WhyOptions) -> Result<WhyOutcome, AppError> {
+        let graph = self.compile(&options.compile)?;
+        let response = why_graph(&graph, &options.request);
+
+        Ok(WhyOutcome { graph, response })
+    }
+
+    pub fn impacted(&self, options: &ImpactOptions) -> Result<ImpactOutcome, AppError> {
+        let graph = self.compile(&options.compile)?;
+        let paths = match &options.request {
+            ImpactSource::Paths(paths) => paths.clone(),
+            ImpactSource::Diff { base, head } => {
+                self.diff
+                    .changed_paths(&options.compile.repo_root, base, head)?
+            }
+        };
+
+        let repo_paths: Vec<_> = paths.iter().map(|p| p.path.clone()).collect();
+        let owners = self
+            .owners
+            .owners(&options.compile.repo_root, &repo_paths)?;
+
+        let response = impacted_graph(&graph, &ImpactRequest { paths, owners });
+
+        Ok(ImpactOutcome { graph, response })
+    }
+
     fn compile(&self, options: &CompileOptions) -> Result<AtlasGraph, AppError> {
         let discovered = self.discovery.discover(&DiscoverRequest {
             repo_root: options.repo_root.clone(),
@@ -138,4 +116,83 @@ where
 
         Ok(compile_atlas(discovered, options.profile))
     }
+}
+
+pub struct CompileOptions {
+    pub repo_root: Utf8PathBuf,
+    pub config_path: Option<Utf8PathBuf>,
+    pub profile: ValidationProfile,
+}
+
+pub struct BuildOptions {
+    pub compile: CompileOptions,
+    pub formats: Vec<RenderFormat>,
+}
+
+pub struct BuildOutcome {
+    pub graph: AtlasGraph,
+    pub rendered: BTreeMap<RenderFormat, String>,
+    pub has_errors: bool,
+}
+
+pub struct CheckOutcome {
+    pub graph: AtlasGraph,
+    pub has_errors: bool,
+}
+
+pub struct QueryOptions {
+    pub compile: CompileOptions,
+    pub request: QueryRequest,
+}
+
+pub struct QueryOutcome {
+    pub graph: AtlasGraph,
+    pub response: QueryResponse,
+}
+
+pub struct TraceOptions {
+    pub compile: CompileOptions,
+    pub request: TraceRequest,
+}
+
+pub struct TraceOutcome {
+    pub graph: AtlasGraph,
+    pub response: Option<TraceResponse>,
+}
+
+pub struct WhyOptions {
+    pub compile: CompileOptions,
+    pub request: WhyRequest,
+}
+
+pub struct WhyOutcome {
+    pub graph: AtlasGraph,
+    pub response: Option<WhyResponse>,
+}
+
+pub enum ImpactSource {
+    Paths(Vec<ChangedPath>),
+    Diff { base: String, head: String },
+}
+
+pub struct ImpactOptions {
+    pub compile: CompileOptions,
+    pub request: ImpactSource,
+}
+
+pub struct ImpactOutcome {
+    pub graph: AtlasGraph,
+    pub response: ImpactResponse,
+}
+
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error("discovery failed: {0}")]
+    Discovery(#[from] DiscoveryError),
+    #[error("rendering failed: {0}")]
+    Render(#[from] RenderError),
+    #[error("diff failed: {0}")]
+    Diff(#[from] DiffError),
+    #[error("owners failed: {0}")]
+    Owners(#[from] OwnersError),
 }

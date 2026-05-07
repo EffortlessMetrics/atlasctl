@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use atlasctl_codes::{DiagnosticCode, Severity};
-use camino::Utf8PathBuf;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -11,7 +11,9 @@ use thiserror::Error;
 
 pub const ATLAS_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(transparent)]
 pub struct AtlasId(String);
 
@@ -21,7 +23,9 @@ pub enum AtlasIdError {
     InvalidFormat { input: String },
     #[error("atlas id kind must be lowercase ASCII with digits or underscores, got `{kind}`")]
     InvalidKind { kind: String },
-    #[error("atlas id slug must be lowercase ASCII with digits, dashes, or underscores, got `{slug}`")]
+    #[error(
+        "atlas id slug must be lowercase ASCII with digits, dashes, or underscores, got `{slug}`"
+    )]
     InvalidSlug { slug: String },
 }
 
@@ -91,12 +95,46 @@ fn kind_is_valid(input: &str) -> bool {
 
 fn slug_is_valid(input: &str) -> bool {
     !input.is_empty()
-        && input.chars().all(|ch| {
-            ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_'
-        })
+        && input
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_')
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeRole {
+    Behavior,
+    Proof,
+    Document,
+    Artifact,
+    Command,
+    Infra,
+}
+
+impl NodeRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Behavior => "behavior",
+            Self::Proof => "proof",
+            Self::Document => "document",
+            Self::Artifact => "artifact",
+            Self::Command => "command",
+            Self::Infra => "infra",
+        }
+    }
+}
+
+impl fmt::Display for NodeRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     Requirement,
@@ -122,6 +160,20 @@ impl NodeKind {
             Self::Artifact => "artifact",
             Self::Crate => "crate",
             Self::Document => "document",
+        }
+    }
+
+    pub fn role(self) -> NodeRole {
+        match self {
+            Self::Requirement => NodeRole::Behavior,
+            Self::Adr => NodeRole::Document,
+            Self::Guide => NodeRole::Document,
+            Self::Scenario => NodeRole::Proof,
+            Self::Fixture => NodeRole::Proof,
+            Self::Command => NodeRole::Command,
+            Self::Artifact => NodeRole::Artifact,
+            Self::Crate => NodeRole::Infra,
+            Self::Document => NodeRole::Document,
         }
     }
 }
@@ -151,7 +203,9 @@ impl FromStr for NodeKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
     Explains,
@@ -162,6 +216,9 @@ pub enum EdgeKind {
     Exercises,
     Documents,
     BelongsTo,
+    Supports,
+    OwnsPath,
+    TouchesPath,
 }
 
 impl EdgeKind {
@@ -175,6 +232,9 @@ impl EdgeKind {
             Self::Exercises => "exercises",
             Self::Documents => "documents",
             Self::BelongsTo => "belongs_to",
+            Self::Supports => "supports",
+            Self::OwnsPath => "owns_path",
+            Self::TouchesPath => "touches_path",
         }
     }
 }
@@ -198,12 +258,50 @@ impl FromStr for EdgeKind {
             "exercises" => Ok(Self::Exercises),
             "documents" => Ok(Self::Documents),
             "belongs_to" => Ok(Self::BelongsTo),
+            "supports" => Ok(Self::Supports),
+            "owns_path" => Ok(Self::OwnsPath),
+            "touches_path" => Ok(Self::TouchesPath),
             other => Err(other.to_string()),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(transparent)]
+pub struct RepoRelativePath(String);
+
+impl RepoRelativePath {
+    pub fn new(path: impl Into<String>) -> Self {
+        let s = path.into();
+        Self(s.replace('\\', "/"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for RepoRelativePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl From<String> for RepoRelativePath {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<&str> for RepoRelativePath {
+    fn from(s: &str) -> Self {
+        Self::new(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PathSelector {
     pub pattern: String,
 }
@@ -211,28 +309,28 @@ pub struct PathSelector {
 impl PathSelector {
     pub fn new(pattern: impl Into<String>) -> Self {
         Self {
-            pattern: pattern.into(),
+            pattern: RepoRelativePath::new(pattern).0,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SourceLocation {
-    pub path: Utf8PathBuf,
+    pub path: RepoRelativePath,
     pub line: Option<usize>,
     pub column: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Provenance {
-    pub source: Utf8PathBuf,
+    pub source: RepoRelativePath,
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub fragment: Option<String>,
 }
 
 impl Provenance {
-    pub fn new(source: Utf8PathBuf) -> Self {
+    pub fn new(source: RepoRelativePath) -> Self {
         Self {
             source,
             line: None,
@@ -250,20 +348,29 @@ impl Provenance {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasNode {
     pub id: AtlasId,
     pub kind: NodeKind,
+    pub role: NodeRole,
     pub title: String,
     pub summary: Option<String>,
     #[serde(default)]
-    pub paths: Vec<PathSelector>,
+    pub owns: Vec<PathSelector>,
+    #[serde(default)]
+    pub touches: Vec<PathSelector>,
     #[serde(default)]
     pub attrs: BTreeMap<String, Value>,
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+impl AtlasNode {
+    pub fn all_paths(&self) -> impl Iterator<Item = &PathSelector> {
+        self.owns.iter().chain(self.touches.iter())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasEdge {
     pub from: AtlasId,
     pub kind: EdgeKind,
@@ -271,7 +378,7 @@ pub struct AtlasEdge {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasDiagnostic {
     pub code: DiagnosticCode,
     pub severity: Severity,
@@ -297,7 +404,7 @@ impl AtlasDiagnostic {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasMetrics {
     pub node_count: usize,
     pub edge_count: usize,
@@ -306,12 +413,12 @@ pub struct AtlasMetrics {
     pub warning_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RepoDescriptor {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasGraph {
     pub schema_version: u32,
     pub tool_version: String,
@@ -322,7 +429,7 @@ pub struct AtlasGraph {
     pub metrics: AtlasMetrics,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct DiscoveredRepo {
     pub repo: RepoDescriptor,
     pub config: AtlasConfig,
@@ -331,12 +438,21 @@ pub struct DiscoveredRepo {
     pub diagnostics: Vec<AtlasDiagnostic>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiscoveryConfig {
     #[serde(default = "default_roots")]
     pub roots: Vec<String>,
     #[serde(default = "default_ignored_paths")]
     pub ignore: Vec<String>,
+}
+
+impl Default for DiscoveryConfig {
+    fn default() -> Self {
+        Self {
+            roots: default_roots(),
+            ignore: default_ignored_paths(),
+        }
+    }
 }
 
 fn default_roots() -> Vec<String> {
@@ -351,15 +467,17 @@ fn default_ignored_paths() -> Vec<String> {
     ]
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct ProfileOverrides {
     pub require_scenario_command: Option<bool>,
     pub require_scenario_crate: Option<bool>,
     pub require_artifact_producer: Option<bool>,
+    pub require_requirement_proof: Option<bool>,
+    pub require_crate_scenario: Option<bool>,
     pub warnings_as_errors: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct ProfileRegistry {
     #[serde(default)]
     pub default: ProfileOverrides,
@@ -369,7 +487,7 @@ pub struct ProfileRegistry {
     pub strict: ProfileOverrides,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasConfig {
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
@@ -393,7 +511,9 @@ impl Default for AtlasConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationProfile {
     Default,
@@ -435,6 +555,8 @@ pub struct ProfileSettings {
     pub require_scenario_command: bool,
     pub require_scenario_crate: bool,
     pub require_artifact_producer: bool,
+    pub require_requirement_proof: bool,
+    pub require_crate_scenario: bool,
     pub warnings_as_errors: bool,
 }
 
@@ -445,18 +567,24 @@ impl ProfileSettings {
                 require_scenario_command: true,
                 require_scenario_crate: true,
                 require_artifact_producer: false,
+                require_requirement_proof: false,
+                require_crate_scenario: false,
                 warnings_as_errors: false,
             },
             ValidationProfile::Ci => Self {
                 require_scenario_command: true,
                 require_scenario_crate: true,
                 require_artifact_producer: true,
+                require_requirement_proof: true,
+                require_crate_scenario: true,
                 warnings_as_errors: false,
             },
             ValidationProfile::Strict => Self {
                 require_scenario_command: true,
                 require_scenario_crate: true,
                 require_artifact_producer: true,
+                require_requirement_proof: true,
+                require_crate_scenario: true,
                 warnings_as_errors: true,
             },
         }
@@ -471,6 +599,12 @@ impl ProfileSettings {
         }
         if let Some(value) = overrides.require_artifact_producer {
             self.require_artifact_producer = value;
+        }
+        if let Some(value) = overrides.require_requirement_proof {
+            self.require_requirement_proof = value;
+        }
+        if let Some(value) = overrides.require_crate_scenario {
+            self.require_crate_scenario = value;
         }
         if let Some(value) = overrides.warnings_as_errors {
             self.warnings_as_errors = value;
@@ -493,25 +627,75 @@ impl AtlasConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct QueryRequest {
     pub needle: String,
     pub kind: Option<NodeKind>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct NodeMatch {
     pub score: u32,
     pub node: AtlasNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct QueryResponse {
     pub needle: String,
     pub matches: Vec<NodeMatch>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum WhySubject {
+    Id(AtlasId),
+    Path(RepoRelativePath),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WhyRequest {
+    pub subject: WhySubject,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct WhyStep {
+    pub node: AtlasNode,
+    pub relationship: EdgeKind,
+    pub direction: TraceDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct WhyResponse {
+    pub root: AtlasNode,
+    pub chain: Vec<WhyStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ChangedPath {
+    pub path: RepoRelativePath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ImpactRequest {
+    pub paths: Vec<ChangedPath>,
+    #[serde(default)]
+    pub owners: std::collections::BTreeMap<RepoRelativePath, Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ImpactHit {
+    pub node: AtlasNode,
+    pub reason: String,
+    #[serde(default)]
+    pub owners: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ImpactResponse {
+    pub impacted: Vec<ImpactHit>,
+    pub uncovered: Vec<ChangedPath>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceDirection {
     Outgoing,
@@ -519,30 +703,32 @@ pub enum TraceDirection {
     Both,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TraceRequest {
     pub start: AtlasId,
     pub direction: TraceDirection,
     pub max_depth: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TraceEdge {
     pub depth: usize,
     pub edge: AtlasEdge,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TraceResponse {
     pub root: AtlasNode,
     pub nodes: Vec<AtlasNode>,
     pub edges: Vec<TraceEdge>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, JsonSchema)]
 pub enum RenderFormat {
     Json,
     Markdown,
+    GitHubSummary,
+    ReviewPacket,
 }
 
 impl RenderFormat {
@@ -550,6 +736,8 @@ impl RenderFormat {
         match self {
             Self::Json => "json",
             Self::Markdown => "markdown",
+            Self::GitHubSummary => "gh-summary",
+            Self::ReviewPacket => "review-packet",
         }
     }
 
@@ -557,6 +745,8 @@ impl RenderFormat {
         match self {
             Self::Json => "atlas.json",
             Self::Markdown => "atlas.md",
+            Self::GitHubSummary => "atlas.gh-summary.md",
+            Self::ReviewPacket => "atlas.review-packet.md",
         }
     }
 }
@@ -573,7 +763,9 @@ impl FromStr for RenderFormat {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "json" => Ok(Self::Json),
-            "markdown" | "md" => Ok(Self::Markdown),
+            "markdown" => Ok(Self::Markdown),
+            "gh-summary" => Ok(Self::GitHubSummary),
+            "review-packet" => Ok(Self::ReviewPacket),
             other => Err(other.to_string()),
         }
     }
@@ -594,6 +786,18 @@ mod tests {
     fn rejects_invalid_ids() {
         let err = AtlasId::parse("Scenario:Bad").expect_err("invalid id");
         assert!(matches!(err, AtlasIdError::InvalidKind { .. }));
+    }
+
+    #[test]
+    fn repo_relative_path_normalizes_slashes() {
+        let path = RepoRelativePath::new("crates\\foo\\src/lib.rs");
+        assert_eq!(path.as_str(), "crates/foo/src/lib.rs");
+    }
+
+    #[test]
+    fn path_selector_normalizes_slashes() {
+        let selector = PathSelector::new("crates\\*\\src");
+        assert_eq!(selector.pattern, "crates/*/src");
     }
 
     #[test]

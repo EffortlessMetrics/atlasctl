@@ -35,3 +35,15 @@ edges:
   - from: scen:query-and-trace-navigate-behavior
     kind: runs_with
     to: cmd:ci-fast
+
+  - from: scen:automated-scaffolding-reduces-friction
+    kind: runs_with
+    to: cmd:ci-fast
+
+  - from: scen:full-release-verification
+    kind: runs_with
+    to: cmd:ci-full
+
+  - from: scen:full-release-verification
+    kind: runs_with
+    to: cmd:docs-check

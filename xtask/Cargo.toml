@@ -6,3 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+atlasctl-types = { path = "../crates/atlasctl-types" }
+serde_json.workspace = true
+schemars.workspace = true
+camino.workspace = true

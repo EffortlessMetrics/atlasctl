@@ -1,0 +1,208 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: json_output
+---
+{
+  "schema_version": 1,
+  "tool_version": "0.1.0",
+  "repo": {
+    "name": "doctor-drift"
+  },
+  "nodes": [
+    {
+      "id": "cmd:ci",
+      "kind": "command",
+      "role": "command",
+      "title": "CI command",
+      "summary": null,
+      "owns": [],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "cmd:stale",
+      "kind": "command",
+      "role": "command",
+      "title": "Stale command",
+      "summary": null,
+      "owns": [],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "crate:engine",
+      "kind": "crate",
+      "role": "infra",
+      "title": "engine",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "crates/engine"
+        }
+      ],
+      "touches": [],
+      "attrs": {
+        "manifest_path": "crates/engine/Cargo.toml",
+        "version": "0.1.0"
+      },
+      "provenance": {
+        "source": "Cargo.toml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "req:dead",
+      "kind": "requirement",
+      "role": "behavior",
+      "title": "Dead selector",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "nonexistent/*"
+        }
+      ],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "req:orphan",
+      "kind": "requirement",
+      "role": "behavior",
+      "title": "Orphan node",
+      "summary": null,
+      "owns": [],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "id": "scen:valid",
+      "kind": "scenario",
+      "role": "proof",
+      "title": "Valid scenario",
+      "summary": null,
+      "owns": [],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "scen:valid",
+      "kind": "runs_with",
+      "to": "cmd:ci",
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    },
+    {
+      "from": "scen:valid",
+      "kind": "exercises",
+      "to": "crate:engine",
+      "provenance": {
+        "source": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "dead_selector",
+      "severity": "warning",
+      "message": "path selector `nonexistent/*` matches no files",
+      "subject": "req:dead",
+      "location": {
+        "path": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `req:dead` has no relationships in the graph",
+      "subject": "req:dead",
+      "location": {
+        "path": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "orphan_node",
+      "severity": "warning",
+      "message": "node `req:orphan` has no relationships in the graph",
+      "subject": "req:orphan",
+      "location": {
+        "path": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "stale_command",
+      "severity": "warning",
+      "message": "command `cmd:stale` is not used by any scenario",
+      "subject": "cmd:stale",
+      "location": {
+        "path": "atlas/drift.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    },
+    {
+      "code": "empty_fragment",
+      "severity": "info",
+      "message": "fragment file `atlas\\empty.atlas.yaml` contains no atlas metadata",
+      "subject": null,
+      "location": {
+        "path": "atlas/empty.atlas.yaml",
+        "line": null,
+        "column": null
+      }
+    }
+  ],
+  "metrics": {
+    "node_count": 6,
+    "edge_count": 2,
+    "diagnostic_count": 5,
+    "error_count": 0,
+    "warning_count": 4
+  }
+}

@@ -1,0 +1,22 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md
+---
+# Impact Analysis
+
+## Impacted Nodes
+
+- `artifact:example-report` (artifact) — Example report
+  - Reason: related to `scen:example-build` via `emits`
+- `cmd:ci-fast` (command) — Fast CI
+  - Reason: related to `scen:example-build` via `runs_with`
+- `crate:engine` (crate) — engine
+  - Reason: related to `scen:example-build` via `exercises`
+- `req:example` (requirement) — Example requirement
+  - Reason: related to `scen:example-build` via `proves`
+- `scen:example-build` (scenario) — Example build
+  - Reason: matches changed path `crates/engine/src/lib.rs`
+
+## Uncovered Changes
+
+_All changes are covered by the atlas._

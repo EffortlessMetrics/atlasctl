@@ -1,0 +1,57 @@
+nodes:
+  - id: scen:one
+    kind: scenario
+    title: Scenario One
+    touches:
+      - crates/engine/src/lib.rs
+
+  - id: scen:two
+    kind: scenario
+    title: Scenario Two
+    touches:
+      - crates/engine/src/lib.rs
+
+  - id: scen:three
+    kind: scenario
+    title: Scenario Three
+    owns:
+      - crates/engine/src/lib.rs
+
+  - id: scen:four
+    kind: scenario
+    title: Scenario Four
+    owns:
+      - crates/engine/src/lib.rs
+
+  - id: cmd:test
+    kind: command
+    title: Test command
+
+edges:
+  - from: scen:one
+    kind: runs_with
+    to: cmd:test
+  - from: scen:one
+    kind: exercises
+    to: crate:engine
+
+  - from: scen:two
+    kind: runs_with
+    to: cmd:test
+  - from: scen:two
+    kind: exercises
+    to: crate:engine
+
+  - from: scen:three
+    kind: runs_with
+    to: cmd:test
+  - from: scen:three
+    kind: exercises
+    to: crate:engine
+
+  - from: scen:four
+    kind: runs_with
+    to: cmd:test
+  - from: scen:four
+    kind: exercises
+    to: crate:engine

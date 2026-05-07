@@ -1,0 +1,42 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: duplicate-id
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `2`
+- Edges: `0`
+- Diagnostics: `2` (errors: `1`, warnings: `1`)
+
+## Scenario Index
+
+_No scenarios defined._
+
+## Nodes by kind
+
+### requirement
+
+- `req:example` — One
+  - Source: `atlas/example.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Owns: `crates/engine`
+
+## Edges
+
+
+## Diagnostics
+
+- [error] `duplicate_id` — duplicate atlas id `req:example` declared in both `atlas/example.atlas.yaml` and `atlas/example.atlas.yaml`
+  - Subject: `req:example`
+  - Location: `atlas/example.atlas.yaml`
+- [warning] `orphan_node` — node `req:example` has no relationships in the graph
+  - Subject: `req:example`
+  - Location: `atlas/example.atlas.yaml`

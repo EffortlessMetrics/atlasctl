@@ -1,0 +1,71 @@
+---
+source: crates/atlasctl-core/src/lib.rs
+expression: md_output
+---
+# Atlas: overlapping-participation
+
+## Summary
+
+- Schema version: `1`
+- Tool version: `0.1.0`
+- Nodes: `6`
+- Edges: `8`
+- Diagnostics: `2` (errors: `2`, warnings: `0`)
+
+## Scenario Index
+
+| Scenario | Proves | Exercises |
+| --- | --- | --- |
+| `scen:four` |  | `crate:engine` |
+| `scen:one` |  | `crate:engine` |
+| `scen:three` |  | `crate:engine` |
+| `scen:two` |  | `crate:engine` |
+
+## Nodes by kind
+
+### scenario
+
+- `scen:four` — Scenario Four
+  - Source: `atlas/example.atlas.yaml`
+  - Owns: `crates/engine/src/lib.rs`
+
+- `scen:one` — Scenario One
+  - Source: `atlas/example.atlas.yaml`
+  - Touches: `crates/engine/src/lib.rs`
+
+- `scen:three` — Scenario Three
+  - Source: `atlas/example.atlas.yaml`
+  - Owns: `crates/engine/src/lib.rs`
+
+- `scen:two` — Scenario Two
+  - Source: `atlas/example.atlas.yaml`
+  - Touches: `crates/engine/src/lib.rs`
+
+### command
+
+- `cmd:test` — Test command
+  - Source: `atlas/example.atlas.yaml`
+
+### crate
+
+- `crate:engine` — engine
+  - Source: `Cargo.toml`
+  - Owns: `crates/engine`
+
+## Edges
+
+- `scen:four` --runs_with--> `cmd:test`
+- `scen:four` --exercises--> `crate:engine`
+- `scen:one` --runs_with--> `cmd:test`
+- `scen:one` --exercises--> `crate:engine`
+- `scen:three` --runs_with--> `cmd:test`
+- `scen:three` --exercises--> `crate:engine`
+- `scen:two` --runs_with--> `cmd:test`
+- `scen:two` --exercises--> `crate:engine`
+
+## Diagnostics
+
+- [error] `duplicate_ownership` — path `crates/engine/src/lib.rs` is claimed by multiple nodes: scen:four, scen:three
+  - Subject: `scen:four`
+- [error] `duplicate_ownership` — path `crates/engine/src/lib.rs` is claimed by multiple nodes: scen:four, scen:three
+  - Subject: `scen:three`

@@ -1,74 +1,75 @@
 # atlasctl
 
-`atlasctl` is a local-first scenario and proof atlas compiler for Rust-style repositories.
+`atlasctl` is a local-first scenario and proof atlas for Rust-style repositories.
 
-It compiles declared metadata about:
+It transforms repository metadata into a deterministic, queryable graph to provide **behavior-aware review and proof routing**.
 
-- requirements
-- ADRs
-- scenarios
-- fixtures
-- commands
-- artifacts
-- workspace crates
+## Core Operational Workflow
 
-into a deterministic, queryable atlas.
+`atlasctl` is designed to be part of your daily development and CI workflow.
 
-The output is a stable `atlas.json` plus a human-readable `atlas.md`.
-
-## Why it exists
-
-Good repos hide too much meaning in:
-
-- test names
-- fixture directories
-- ADR prose
-- maintainer memory
-- CI scripts
-
-That makes delegation expensive.
-
-`atlasctl` turns that implicit topology into an explicit graph so humans and agents can answer:
-
-- what behavior matters here?
-- what proves it?
-- what fixture models it?
-- what artifact should I inspect?
-- what docs explain why it exists?
-
-## Commands
-
+### 1. Self-Policing with `doctor`
+Catch graph drift, dead selectors, and orphan nodes before they become a problem.
 ```bash
-cargo run -p atlasctl-cli -- build
-cargo run -p atlasctl-cli -- check --profile ci
-cargo run -p atlasctl-cli -- query scen:build-emits-canonical-atlas
-cargo run -p atlasctl-cli -- trace req:deterministic-atlas
-cargo run -p atlasctl-cli -- export --format json
+atlasctl doctor
 ```
 
-## Repository shape
+### 2. Review-time Impact Analysis
+Map a diff to behavior, proof surfaces, and documentation.
+```bash
+# Analyze impact of local changes vs main
+atlasctl impacted --base main --head HEAD
 
-The workspace is split into:
+# Use in CI for a compact summary
+atlasctl impacted --format gh-summary
+```
 
-- `atlasctl-core` for graph assembly, validation, query, and trace
-- `atlasctl-discover-fs` for repo-local discovery
-- `atlasctl-render` for JSON and Markdown projections
-- `atlasctl-app` for orchestration
-- `atlasctl-cli` for the operator surface
+### 3. Semantic Navigation with `why`
+Project a short, readable proof chain for any node or path to understand its purpose and verification.
+```bash
+atlasctl why --path crates/atlasctl-core/src/lib.rs
+```
 
-The atlas uses explicit metadata first. It does not try to infer the repo’s meaning from arbitrary code.
+## Onboarding and Scaffolding
 
-## Current status
+Bootstrap a new atlas or add new proof surfaces quickly:
 
-This repository is a vertical slice:
+```bash
+# Initialize a new repository
+atlasctl init
 
-- graph model
-- deterministic compilation
-- fragment and frontmatter discovery
-- workspace crate discovery
-- validation profiles
-- query and trace
-- JSON and Markdown output
-- docs and fixture repos
+# Scaffold a new scenario, artifact, or requirement
+atlasctl scaffold scenario my-new-feature
+```
 
-That is enough to dogfood on this repo and to extend later with impact analysis and cross-tool integration.
+## Repository Intelligence
+
+`atlasctl` compiles declared metadata about:
+- **Requirements**: Behavioral goals of the system.
+- **ADRs**: Architecture Decision Records.
+- **Scenarios**: Concrete behaviors that prove requirements.
+- **Fixtures**: Models or data used in proof.
+- **Commands**: Operational tasks or test runners.
+- **Artifacts**: Outputs to be inspected.
+- **Crates**: Infrastructure components.
+
+The result is a stable `atlas.json` (machine-facing) and a human-readable `atlas.md`.
+
+## Installation
+
+```bash
+cargo build --release
+```
+Requires Rust 1.92 or later (Edition 2024).
+
+## Current Status (v0.1.0)
+
+- ✅ **Operational CLI**: Deep support for `doctor`, `impacted`, and `why`.
+- ✅ **Deterministic Artifacts**: Stable JSON schema and repo-relative pathing.
+- ✅ **Owner Overlays**: Integrated `CODEOWNERS` support.
+- ✅ **CI Optimized**: Dedicated GitHub step summary output.
+- ✅ **Scaffolding**: Low-friction `init` and `scaffold` commands.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.

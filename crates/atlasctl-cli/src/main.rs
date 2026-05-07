@@ -1,13 +1,16 @@
 #![forbid(unsafe_code)]
 
 use atlasctl_app::{
-    AtlasService, BuildOptions, CheckOutcome, CompileOptions, QueryOptions, TraceOptions,
+    AtlasService, BuildOptions, CheckOutcome, CompileOptions, ImpactOptions, ImpactSource,
+    QueryOptions, TraceOptions, WhyOptions,
 };
 use atlasctl_codes::ExitCode;
-use atlasctl_discover_fs::FsDiscovery;
+use atlasctl_discover_fs::{Codeowners, FsDiscovery, GitDiff};
+use atlasctl_ports::RenderPort;
 use atlasctl_render::AtlasRenderer;
 use atlasctl_types::{
-    NodeKind, QueryRequest, RenderFormat, TraceDirection, TraceRequest, ValidationProfile,
+    AtlasId, ChangedPath, NodeKind, QueryRequest, RenderFormat, RepoRelativePath, TraceDirection,
+    TraceRequest, ValidationProfile, WhyRequest, WhySubject,
 };
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -24,11 +27,38 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    Init(InitArgs),
+    Scaffold(ScaffoldArgs),
     Build(BuildArgs),
     Check(CheckArgs),
+    Doctor(DoctorArgs),
+    Impacted(ImpactedArgs),
+    Why(WhyArgs),
     Query(QueryArgs),
     Trace(TraceArgs),
     Export(ExportArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct ScaffoldArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    #[arg(value_enum)]
+    kind: ScaffoldKind,
+    id: String,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ScaffoldKind {
+    Scenario,
+    Artifact,
+    Requirement,
+}
+
+#[derive(Debug, Clone, Args)]
+struct InitArgs {
+    #[arg(long, default_value = ".")]
+    repo_root: camino::Utf8PathBuf,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -53,6 +83,39 @@ struct BuildArgs {
 struct CheckArgs {
     #[command(flatten)]
     common: CommonArgs,
+    #[arg(long, value_enum, default_value_t = OutputArg::Text)]
+    format: OutputArg,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DoctorArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    #[arg(long, value_enum, default_value_t = OutputArg::Text)]
+    format: OutputArg,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ImpactedArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    #[arg(long)]
+    base: Option<String>,
+    #[arg(long)]
+    head: Option<String>,
+    #[arg(long, value_delimiter = ' ')]
+    paths: Option<Vec<String>>,
+    #[arg(long, value_enum, default_value_t = OutputArg::Text)]
+    format: OutputArg,
+}
+
+#[derive(Debug, Clone, Args)]
+struct WhyArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    subject: String,
+    #[arg(long)]
+    path: bool,
     #[arg(long, value_enum, default_value_t = OutputArg::Text)]
     format: OutputArg,
 }
@@ -98,12 +161,17 @@ enum ProfileArg {
 enum OutputArg {
     Text,
     Json,
+    Markdown,
+    GhSummary,
+    ReviewPacket,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum FormatArg {
     Json,
     Markdown,
+    GhSummary,
+    ReviewPacket,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -123,11 +191,24 @@ impl From<ProfileArg> for ValidationProfile {
     }
 }
 
+impl From<OutputArg> for RenderFormat {
+    fn from(arg: OutputArg) -> Self {
+        match arg {
+            OutputArg::Text | OutputArg::Markdown => RenderFormat::Markdown,
+            OutputArg::Json => RenderFormat::Json,
+            OutputArg::GhSummary => RenderFormat::GitHubSummary,
+            OutputArg::ReviewPacket => RenderFormat::ReviewPacket,
+        }
+    }
+}
+
 impl From<FormatArg> for RenderFormat {
     fn from(value: FormatArg) -> Self {
         match value {
             FormatArg::Json => RenderFormat::Json,
             FormatArg::Markdown => RenderFormat::Markdown,
+            FormatArg::GhSummary => RenderFormat::GitHubSummary,
+            FormatArg::ReviewPacket => RenderFormat::ReviewPacket,
         }
     }
 }
@@ -144,7 +225,7 @@ impl From<DirectionArg> for TraceDirection {
 
 fn main() {
     let cli = Cli::parse();
-    let service = AtlasService::new(FsDiscovery::default(), AtlasRenderer::default());
+    let service = AtlasService::new(FsDiscovery, AtlasRenderer, GitDiff, Codeowners);
 
     let code = match run(cli, service) {
         Ok(code) => code,
@@ -159,9 +240,116 @@ fn main() {
 
 fn run(
     cli: Cli,
-    service: AtlasService<FsDiscovery, AtlasRenderer>,
+    service: AtlasService<FsDiscovery, AtlasRenderer, GitDiff, Codeowners>,
 ) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Init(args) => {
+            let config_path = args.repo_root.join("atlas.toml");
+            if config_path.exists() {
+                return Err(format!("`{config_path}` already exists"));
+            }
+
+            let repo_name = args.repo_root.file_name().unwrap_or("repo").to_string();
+
+            let content = format!(
+                r#"[repo]
+name = "{repo_name}"
+
+[discovery]
+roots = ["."]
+ignore = ["target", ".git", "node_modules"]
+
+[profiles.default]
+require_scenario_command = false
+warnings_as_errors = false
+
+[profiles.ci]
+require_scenario_command = true
+require_artifact_producer = true
+warnings_as_errors = true
+"#
+            );
+
+            fs::write(&config_path, content)
+                .map_err(|err| format!("failed to write `{config_path}`: {err}"))?;
+
+            println!("Initialized atlas in `{config_path}`");
+            Ok(ExitCode::Ok)
+        }
+        Command::Scaffold(args) => {
+            let atlas_dir = args.common.repo_root.join("atlas");
+            if !atlas_dir.exists() {
+                fs::create_dir_all(&atlas_dir)
+                    .map_err(|err| format!("failed to create `atlas/` directory: {err}"))?;
+            }
+
+            let id = if args.id.contains(':') {
+                args.id.clone()
+            } else {
+                let prefix = match args.kind {
+                    ScaffoldKind::Scenario => "scen",
+                    ScaffoldKind::Artifact => "artifact",
+                    ScaffoldKind::Requirement => "req",
+                };
+                format!("{}:{}", prefix, args.id)
+            };
+
+            let file_name = format!("{}.atlas.yaml", args.id.replace(':', "-"));
+            let scaffold_path = atlas_dir.join(file_name);
+            if scaffold_path.exists() {
+                return Err(format!("`{scaffold_path}` already exists"));
+            }
+
+            let content = match args.kind {
+                ScaffoldKind::Scenario => format!(
+                    r#"nodes:
+  - id: {id}
+    kind: scenario
+    title: {id}
+    summary: |
+      Enter scenario summary here.
+    touches:
+      - "tests/*.rs"
+edges:
+  - from: {id}
+    kind: exercises
+    to: crate:TODO
+  - from: {id}
+    kind: runs_with
+    to: cmd:TODO
+"#
+                ),
+                ScaffoldKind::Artifact => format!(
+                    r#"nodes:
+  - id: {id}
+    kind: artifact
+    title: {id}
+    summary: |
+      Enter artifact summary here.
+"#
+                ),
+                ScaffoldKind::Requirement => format!(
+                    r#"nodes:
+  - id: {id}
+    kind: requirement
+    title: {id}
+    summary: |
+      Enter requirement summary here.
+"#
+                ),
+            };
+            let kind_name = match args.kind {
+                ScaffoldKind::Scenario => "scenario",
+                ScaffoldKind::Artifact => "artifact",
+                ScaffoldKind::Requirement => "requirement",
+            };
+
+            fs::write(&scaffold_path, content)
+                .map_err(|err| format!("failed to write `{scaffold_path}`: {err}"))?;
+
+            println!("Scaffolded {} in `{scaffold_path}`", kind_name);
+            Ok(ExitCode::Ok)
+        }
         Command::Build(args) => {
             let options = BuildOptions {
                 compile: compile_options(&args.common),
@@ -196,9 +384,32 @@ fn run(
             match args.format {
                 OutputArg::Text => print_check(&outcome),
                 OutputArg::Json => {
-                    let json = serde_json::to_string_pretty(&outcome.graph)
-                        .map_err(|err| format!("failed to serialize graph: {err}"))?;
+                    let json = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::Json)
+                        .map_err(|err| format!("failed to render JSON: {err}"))?;
                     println!("{json}");
+                }
+                OutputArg::Markdown => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::Markdown)
+                        .map_err(|err| format!("failed to render Markdown: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::GhSummary => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::GitHubSummary)
+                        .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
                 }
             }
 
@@ -208,11 +419,174 @@ fn run(
                 ExitCode::Ok
             })
         }
+        Command::Doctor(args) => {
+            let outcome = service
+                .doctor(&compile_options(&args.common))
+                .map_err(|err| format!("doctor failed: {err}"))?;
+
+            match args.format {
+                OutputArg::Text => print_check(&outcome),
+                OutputArg::Json => {
+                    let json = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::Json)
+                        .map_err(|err| format!("failed to render JSON: {err}"))?;
+                    println!("{json}");
+                }
+                OutputArg::Markdown => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::Markdown)
+                        .map_err(|err| format!("failed to render Markdown: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::GhSummary => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::GitHubSummary)
+                        .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render(&outcome.graph, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
+            }
+
+            Ok(if outcome.has_errors {
+                ExitCode::ValidationFailed
+            } else {
+                ExitCode::Ok
+            })
+        }
+        Command::Impacted(args) => {
+            let source = if let Some(paths) = args.paths {
+                ImpactSource::Paths(
+                    paths
+                        .into_iter()
+                        .map(|p| ChangedPath {
+                            path: RepoRelativePath::new(p),
+                        })
+                        .collect(),
+                )
+            } else {
+                ImpactSource::Diff {
+                    base: args.base.unwrap_or_else(|| "main".to_string()),
+                    head: args.head.unwrap_or_else(|| "HEAD".to_string()),
+                }
+            };
+
+            let outcome = service
+                .impacted(&ImpactOptions {
+                    compile: compile_options(&args.common),
+                    request: source,
+                })
+                .map_err(|err| format!("impacted failed: {err}"))?;
+
+            match args.format {
+                OutputArg::Text => print_impacted(&outcome),
+                OutputArg::Json => {
+                    let json = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::Json)
+                        .map_err(|err| format!("failed to render JSON: {err}"))?;
+                    println!("{json}");
+                }
+                OutputArg::Markdown => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::Markdown)
+                        .map_err(|err| format!("failed to render Markdown: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::GhSummary => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::GitHubSummary)
+                        .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
+            }
+
+            Ok(ExitCode::Ok)
+        }
+        Command::Why(args) => {
+            let subject = if args.path {
+                WhySubject::Path(RepoRelativePath::new(args.subject))
+            } else {
+                WhySubject::Id(
+                    AtlasId::parse(args.subject)
+                        .map_err(|err| format!("invalid node id: {err}"))?,
+                )
+            };
+
+            let outcome = service
+                .why(&WhyOptions {
+                    compile: compile_options(&args.common),
+                    request: WhyRequest { subject },
+                })
+                .map_err(|err| format!("why failed: {err}"))?;
+
+            match args.format {
+                OutputArg::Text => print_why(&outcome),
+                OutputArg::Json => {
+                    let json = service
+                        .renderer
+                        .render_why(
+                            outcome.response.as_ref().ok_or("no response")?,
+                            atlasctl_types::RenderFormat::Json,
+                        )
+                        .map_err(|err| format!("failed to render JSON: {err}"))?;
+                    println!("{json}");
+                }
+                OutputArg::Markdown => {
+                    let md = service
+                        .renderer
+                        .render_why(
+                            outcome.response.as_ref().ok_or("no response")?,
+                            atlasctl_types::RenderFormat::Markdown,
+                        )
+                        .map_err(|err| format!("failed to render Markdown: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::GhSummary => {
+                    let md = service
+                        .renderer
+                        .render_why(
+                            outcome.response.as_ref().ok_or("no response")?,
+                            atlasctl_types::RenderFormat::GitHubSummary,
+                        )
+                        .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render_why(
+                            outcome.response.as_ref().ok_or("no response")?,
+                            atlasctl_types::RenderFormat::ReviewPacket,
+                        )
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
+            }
+
+            Ok(ExitCode::Ok)
+        }
         Command::Query(args) => {
             let kind = match args.kind {
                 Some(kind) => Some(
-                    NodeKind::from_str(&kind)
-                        .map_err(|_| format!("unknown node kind `{kind}`"))?,
+                    NodeKind::from_str(&kind).map_err(|_| format!("unknown node kind `{kind}`"))?,
                 ),
                 None => None,
             };
@@ -231,10 +605,7 @@ fn run(
                 println!("no matches");
             } else {
                 for hit in outcome.response.matches {
-                    println!(
-                        "{} [{}] {}",
-                        hit.node.id, hit.node.kind, hit.node.title
-                    );
+                    println!("{} [{}] {}", hit.node.id, hit.node.kind, hit.node.title);
                     println!("  score: {}", hit.score);
                     println!("  source: {}", hit.node.provenance.source);
                     if let Some(summary) = hit.node.summary {
@@ -267,7 +638,10 @@ fn run(
                 return Ok(ExitCode::ValidationFailed);
             };
 
-            println!("root: {} [{}] {}", response.root.id, response.root.kind, response.root.title);
+            println!(
+                "root: {} [{}] {}",
+                response.root.id, response.root.kind, response.root.title
+            );
             println!();
 
             if response.nodes.is_empty() {
@@ -310,11 +684,11 @@ fn run(
                 .ok_or_else(|| "rendered output missing".to_string())?;
 
             if let Some(path) = args.out {
-                if let Some(parent) = path.parent() {
-                    if !parent.as_str().is_empty() {
-                        fs::create_dir_all(parent)
-                            .map_err(|err| format!("failed to create `{}`: {err}", parent))?;
-                    }
+                if let Some(parent) = path.parent()
+                    && !parent.as_str().is_empty()
+                {
+                    fs::create_dir_all(parent)
+                        .map_err(|err| format!("failed to create `{}`: {err}", parent))?;
                 }
                 fs::write(&path, rendered)
                     .map_err(|err| format!("failed to write `{}`: {err}", path))?;
@@ -374,6 +748,75 @@ fn print_check(outcome: &CheckOutcome) {
         }
         if let Some(location) = &diagnostic.location {
             println!("  location: {}", location.path);
+        }
+    }
+}
+
+fn print_impacted(outcome: &atlasctl_app::ImpactOutcome) {
+    println!("Impact Analysis:");
+    println!("  impacted nodes: {}", outcome.response.impacted.len());
+    println!("  uncovered changes: {}", outcome.response.uncovered.len());
+
+    if !outcome.response.impacted.is_empty() {
+        println!("\nImpacted Nodes:");
+        for hit in &outcome.response.impacted {
+            println!("- {} ({}) — {}", hit.node.id, hit.node.kind, hit.node.title);
+            println!("  reason: {}", hit.reason);
+            if !hit.owners.is_empty() {
+                println!("  owners: {}", hit.owners.join(", "));
+            }
+        }
+    }
+
+    if !outcome.response.uncovered.is_empty() {
+        println!("\nUncovered Changes:");
+        for path in &outcome.response.uncovered {
+            println!("- {}", path.path);
+        }
+    }
+}
+
+fn print_why(outcome: &atlasctl_app::WhyOutcome) {
+    let Some(response) = &outcome.response else {
+        println!("No matching node found.");
+        return;
+    };
+
+    println!("Node: {} ({})", response.root.id, response.root.kind);
+    println!("Title: {}", response.root.title);
+    if let Some(summary) = &response.root.summary {
+        println!("Summary: {}", summary);
+    }
+    println!("Source: {}", response.root.provenance.source);
+
+    if !response.root.owns.is_empty() {
+        println!("Owns:");
+        for p in &response.root.owns {
+            println!("  - {}", p.pattern);
+        }
+    }
+
+    if !response.root.touches.is_empty() {
+        println!("Touches:");
+        for p in &response.root.touches {
+            println!("  - {}", p.pattern);
+        }
+    }
+
+    if response.chain.is_empty() {
+        println!("\nNo immediate proof chain found.");
+    } else {
+        println!("\nProof chain:");
+        for step in &response.chain {
+            let direction = match step.direction {
+                atlasctl_types::TraceDirection::Incoming => "<--",
+                atlasctl_types::TraceDirection::Outgoing => "-->",
+                atlasctl_types::TraceDirection::Both => "<->",
+            };
+            println!(
+                "  {} [{}] {} ({})",
+                direction, step.relationship, step.node.id, step.node.kind
+            );
         }
     }
 }
