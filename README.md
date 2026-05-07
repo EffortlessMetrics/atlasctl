@@ -1,5 +1,10 @@
 # atlasctl
 
+[![CI](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/ci.yml)
+[![Coverage](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/coverage.yml)
+[![Codecov](https://codecov.io/gh/EffortlessMetrics/atlasctl/branch/main/graph/badge.svg)](https://codecov.io/gh/EffortlessMetrics/atlasctl)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 `atlasctl` is a local-first scenario and proof atlas for Rust-style repositories.
 
 It transforms repository metadata into a deterministic, queryable graph to provide **behavior-aware review and proof routing**.
