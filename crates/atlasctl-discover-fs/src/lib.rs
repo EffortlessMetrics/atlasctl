@@ -898,10 +898,14 @@ fn discover_workspace_crates(repo_root: &Utf8Path) -> DiscoveryBatch {
 }
 
 fn relative_path(repo_root: &Utf8Path, abs_path: &Utf8Path) -> Option<Utf8PathBuf> {
-    abs_path
-        .strip_prefix(repo_root)
-        .ok()
-        .map(|path| path.to_path_buf())
+    abs_path.strip_prefix(repo_root).ok().map(|path| {
+        let s = path.as_str();
+        if s.contains('\\') {
+            Utf8PathBuf::from(s.replace('\\', "/"))
+        } else {
+            path.to_path_buf()
+        }
+    })
 }
 
 fn location(path: &Utf8Path) -> atlasctl_types::SourceLocation {
