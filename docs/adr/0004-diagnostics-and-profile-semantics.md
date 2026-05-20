@@ -8,7 +8,7 @@ atlas:
 ---
 # ADR 0004: Diagnostics and profile semantics
 
-Date: 2026-04-16  
+Date: 2026-04-16
 Status: Accepted
 
 ## Decision

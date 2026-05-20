@@ -8,7 +8,7 @@ atlas:
 ---
 # ADR 0003: Discovery conventions and fragments
 
-Date: 2026-04-16  
+Date: 2026-04-16
 Status: Accepted
 
 ## Decision

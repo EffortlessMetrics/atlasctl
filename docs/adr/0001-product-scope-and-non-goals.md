@@ -8,7 +8,7 @@ atlas:
 ---
 # ADR 0001: Product scope and non-goals
 
-Date: 2026-04-16  
+Date: 2026-04-16
 Status: Accepted
 
 ## Decision

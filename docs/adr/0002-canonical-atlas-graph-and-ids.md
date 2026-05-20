@@ -8,7 +8,7 @@ atlas:
 ---
 # ADR 0002: Canonical atlas graph and IDs
 
-Date: 2026-04-16  
+Date: 2026-04-16
 Status: Accepted
 
 ## Decision
