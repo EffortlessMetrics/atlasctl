@@ -1,31 +1,36 @@
-# Requirements
+---
+atlas:
+  id: guide:requirements-and-specs
+  kind: guide
+  title: Requirements and specification map
+  documents:
+    - req:deterministic-atlas
+---
+# Requirements and specification map
 
-## Mission
+This repository’s product requirements are defined as a specs corpus in `docs/specs`.
 
-Compile a deterministic, queryable atlas of a repo’s behavior and proof topology.
+- [000-overview](docs/specs/000-overview.md)
+- [010-graph-model](docs/specs/010-graph-model.md)
+- [020-config](docs/specs/020-config.md)
+- [030-metadata-fragments](docs/specs/030-metadata-fragments.md)
+- [040-markdown-frontmatter](docs/specs/040-markdown-frontmatter.md)
+- [050-validation-profiles](docs/specs/050-validation-profiles.md)
+- [060-artifact-protocol](docs/specs/060-artifact-protocol.md)
+- [070-review-impact](docs/specs/070-review-impact.md)
+- [080-cli-contract](docs/specs/080-cli-contract.md)
+- [090-compatibility](docs/specs/090-compatibility.md)
 
-## Core requirements
+## Primary requirements snapshot
 
-1. Local-first compilation
-2. Explicit metadata over inference
-3. Canonical typed graph
-4. Stable IDs
-5. Provenance on every node and edge
-6. Canonical `atlas.json`
-7. Human-readable `atlas.md`
-8. Structural validation
-9. Progressive adoption via profiles
-10. Query and trace
-11. Deterministic outputs
-12. CI-friendly CLI
-13. Schema discipline
-14. Future-ready path selectors for later impact analysis
+- **deterministic atlas compilation** from explicit metadata
+- **queryable proof topology** for ownership, scenarios, and evidence
+- **operational review workflows** centered on `impacted`, `doctor`, and `why`
+- **low-friction onboarding** through `init` and `scaffold`
+- **artifact contract stability** with schema-backed machine outputs
 
-## v0.1 release bar
+## Evidence obligations
 
-- build, check, query, trace
-- fragment and frontmatter discovery
-- workspace crate discovery
-- stable JSON and Markdown
-- fixture repos
-- self-dogfood path
+- Every behavior requirement must map to one or more proving scenarios.
+- Every scenario must be connected to commands/artifacts where applicable.
+- Every changed path must produce stable impact classification or an explicit gap.

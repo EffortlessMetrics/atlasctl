@@ -8,10 +8,27 @@ atlas:
 ---
 # ADR 0004: Diagnostics and profile semantics
 
-Profiles allow progressive adoption:
+Date: 2026-04-16  
+Status: Accepted
 
-- `default`
-- `ci`
-- `strict`
+## Decision
 
-Diagnostics are stable and typed.
+Validation is enforced through three profiles:
+
+- `default`: local developer defaults.
+- `ci`: stricter requirements for pre-merge checks.
+- `strict`: release-grade quality with warnings-as-errors.
+
+Diagnostics are strongly typed and deterministic.
+Ownership conflict and coverage profiles are part of this contract.
+
+## Why
+
+- Progressive adoption is needed for legacy repositories.
+- CI needs stronger guarantees than local defaults.
+- Release-grade checks must expose warning debt before publishing.
+
+## Consequences
+
+- New rule families must define their default profile behavior.
+- Consumers can choose profile by command argument without changing sources.

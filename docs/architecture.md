@@ -9,39 +9,42 @@ atlas:
 ---
 # Architecture
 
-`atlasctl` is a graph compiler with a hexagonal shape.
+`atlasctl` is a deterministic compiler for review proof topology.
 
-## Center
+## Composition layers
 
-The pure center owns:
+### Core
+
+`atlasctl-types` and `atlasctl-core` hold:
 
 - node and edge types
 - graph assembly
-- validation
-- query
-- trace
-- diagnostics
+- validation and diagnostics
+- query, trace, and impact semantics
 
-## Edges
+### Adapters and services
 
-Adapters own:
+- `atlasctl-discover-fs`: discovery and parsing adapters (filesystem, frontmatter, Cargo workspace).
+- `atlasctl-app`: command-level orchestration over typed interfaces.
+- `atlasctl-render`: deterministic projections (`atlas.json`, `atlas.md`, summaries, review packets).
+- `atlasctl-cli`: CLI entrypoint and output wiring.
+- `atlasctl-fixtures`: local fixture sources used for behavior tests.
 
-- reading `atlas.toml`
-- scanning the filesystem
-- parsing atlas fragments
-- reading Markdown frontmatter
-- discovering workspace crates
-- rendering JSON and Markdown
+## Execution flow
 
-## Crates
+1. Compile phase: discover metadata from `atlas.toml`, `.atlas.yaml` fragments, markdown frontmatter, and workspace facts.
+2. Build phase: assemble nodes, edges, ownership, and validation context.
+3. Verify phase: apply profile settings and emit structured diagnostics.
+4. Review phase: produce proof-oriented responses for `impacted`, `doctor`, and `why`.
+5. Serve phase: execute query/trace/impact/why commands with deterministic ranking and stable paths.
 
-- `atlasctl-codes`
-- `atlasctl-types`
-- `atlasctl-core`
-- `atlasctl-ports`
-- `atlasctl-app`
-- `atlasctl-discover-fs`
-- `atlasctl-render`
-- `atlasctl-cli`
+## Graph as contract
 
-Rendering is a leaf concern. The CLI is the composition root.
+All runtime behavior is derived from the graph contract:
+
+- stable identifiers (`<kind>:<slug>`)
+- deterministic ordering for output lists
+- explicit edge types with ownership/participation semantics (`owns` / `touches`)
+- role-aware validation by explicit node role
+
+This avoids hidden inference and keeps output behavior predictable across machines.

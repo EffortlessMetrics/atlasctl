@@ -6,7 +6,9 @@ Release Date: 2026-04-16
 
 ### Overview
 
-This is the v0.1.0 release of `atlasctl`, a local-first scenario and proof atlas compiler for Rust-style repositories. This release transforms the tool from a static graph builder into a full review-time proof navigator, offering a deterministic, queryable graph, and deep operational features like impact analysis and drift detection.
+This is the v0.1.0 release of `atlasctl`, a local-first proof-topology control surface.
+It compiles explicit metadata into deterministic artifacts and answers review questions around
+impact, ownership, and proof coverage.
 
 ### Features Implemented
 
@@ -14,7 +16,7 @@ This is the v0.1.0 release of `atlasctl`, a local-first scenario and proof atlas
 
 - **Graph Model**: Stable graph model with nodes and edges representing requirements, ADRs, scenarios, fixtures, commands, artifacts, and workspace crates.
 - **Deterministic Compilation**: Reproducible atlas generation from repository metadata with strict path normalization (forward slashes, repo-relative paths only).
-- **Fragment Discovery**: YAML fragment discovery from `atlas/` directory.
+- **Fragment Discovery**: YAML fragment discovery from the `atlas/` directory.
 - **Frontmatter Parsing**: Markdown frontmatter parsing for embedded metadata.
 - **Workspace Crate Discovery**: Automatic discovery of Rust workspace crates.
 - **Owner Overlays**: Parses `CODEOWNERS` to map reviewers directly to impacted atlas nodes.
@@ -31,18 +33,19 @@ This is the v0.1.0 release of `atlasctl`, a local-first scenario and proof atlas
 - **Semantic Navigation (Why)**: Projects a short, readable proof chain for any node or path.
 - **Query and Trace**: Search nodes by ID/pattern and trace relationships in both directions with configurable depth.
 
-#### Rendering
+#### Rendering and review artifacts
 
-- **JSON Output**: Machine-readable outputs with stable schemas for `build`, `doctor`, `why`, and `impacted` commands.
-- **Markdown Output**: Human-readable `atlas.md` with formatted sections and dossiers.
-- **GitHub Summary**: Optimized markdown projection (`--format gh-summary`) for CI step summaries.
+- **JSON Output**: Machine-readable outputs with stable schemas for `build`, `doctor`, `why`, and `impacted` command paths.
+- **Markdown Output**: Human-readable `atlas.md` and command projections.
+- **GitHub Summary**: Optimized markdown projection (`--format gh-summary`) for CI summaries.
+- **Review Packet**: `review-packet` format for compact review-ready output.
 
 #### Adoption Scaffolding
 
 - **Init Command**: Generates starter `atlas.toml` to bootstrap new repositories.
 - **Scaffold Command**: Generates valid YAML stubs for scenarios, artifacts, and requirements.
 
-### Commands
+### Core commands (operational order)
 
 ```bash
 # Bootstrap a repository
@@ -52,15 +55,15 @@ atlasctl scaffold scenario my-new-feature
 # Build the atlas
 atlasctl build [--out-dir DIR] [--repo-root PATH] [--config PATH]
 
-# Check validation and drift
-atlasctl check [--profile default|ci|strict] [--format text|json|gh-summary]
-atlasctl doctor [--format text|json|gh-summary]
+# Daily health gate
+atlasctl check [--profile default|ci|strict] [--format text|json|markdown|gh-summary|review-packet]
+atlasctl doctor [--format text|json|markdown|gh-summary|review-packet]
 
-# Review-time impact analysis
-atlasctl impacted [--base main --head HEAD] [--paths file.rs] [--format text|json|gh-summary]
+# Daily review workflow
+atlasctl impacted [--base main --head HEAD] [--paths file.rs] [--format text|json|markdown|gh-summary|review-packet]
 
-# Get a proof chain
-atlasctl why <id-or-path> [--path] [--format text|json|gh-summary]
+# Proof chain lookup
+atlasctl why <id-or-path> [--path] [--format text|json|markdown|gh-summary|review-packet]
 
 # Query nodes
 atlasctl query <needle> [--kind KIND]
@@ -69,7 +72,7 @@ atlasctl query <needle> [--kind KIND]
 atlasctl trace <start> [--direction outgoing|incoming|both] [--max-depth N]
 
 # Export formats
-atlasctl export --format json|markdown|gh-summary [--out PATH]
+atlasctl export --format json|markdown|gh-summary|review-packet [--out PATH]
 ```
 
 ### Installation
@@ -84,7 +87,7 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 ### Test Coverage
 
-- **111+ tests** across all crates
+- **Cross-layer coverage across all crates**
 - **BDD tests**: Scenario-based tests validating graph semantics
 - **Property tests**: Proptest-based tests for determinism and integrity
 - **Golden file tests**: Snapshot tests for JSON, Markdown, and GH summaries
@@ -92,11 +95,7 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 ### Self-Dogfooding
 
-The project successfully uses `atlasctl` to track its own behavior:
-
-- **34 nodes** representing requirements, scenarios, ADRs, fixtures, commands, and artifacts
-- **38 edges** representing relationships between nodes
-- **0 diagnostics** - clean validation
+The project uses `atlasctl` against its own graph data with a clean-check pipeline and release gates.
 
 ### Known Limitations
 
@@ -108,12 +107,7 @@ The project successfully uses `atlasctl` to track its own behavior:
 
 ### Future Roadmap
 
-- Advanced diffing and atlas snapshot comparison
-- Enhanced query syntax (filters, sorting, projections)
-- Additional fragment formats (TOML, JSON)
-- IDE integration support
-- Performance optimizations for large repositories
-- Additional output formats (HTML, Graphviz, DOT)
+The living roadmap and spec-completion plan now lives in [docs/tasks.md](docs/tasks.md) and is the source of truth for prioritization and closure criteria.
 
 ### Release Bar
 

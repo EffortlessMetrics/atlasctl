@@ -8,11 +8,30 @@ atlas:
 ---
 # ADR 0001: Product scope and non-goals
 
-`atlasctl` owns one job: compile a repo’s behavior and proof topology into a stable atlas.
+Date: 2026-04-16  
+Status: Accepted
 
-It does not own:
+## Decision
 
-- code intelligence
-- test execution
-- merge policy
-- hosted reporting
+`atlasctl` is a local compiler and navigator for behavior/proof metadata.
+It does not perform remote inference, static analysis of code bodies beyond
+declared metadata, or CI policy decisions.
+
+## Scope
+
+- `atlasctl` compiles explicit repository behavior/proof metadata into deterministic artifacts.
+- It is used operationally through `impacted`, `doctor`, and `why`.
+- `query` and `trace` provide navigation, but do not replace review workflows.
+- It exports machine contracts for review, CI, and local projection.
+
+## Non-goals
+
+- code intelligence (no language semantic inference)
+- test execution orchestration (it reads test status, it does not run tests)
+- merge policy and auto-enforcement
+- hosted reporting or remote control plane
+- probabilistic/AI inference for proof claims
+
+## Outcome
+
+The product stays explicit, local-first, and suitable for review-native contracts.
