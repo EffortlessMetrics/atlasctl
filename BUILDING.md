@@ -17,20 +17,26 @@ cargo run -p atlasctl-cli -- build
 ## Operator examples
 
 ```bash
-# Initialize and scaffold
+# Onboard and set defaults
 cargo run -p atlasctl-cli -- init
 cargo run -p atlasctl-cli -- scaffold scenario my-scenario
 
-# Verify your repo structure
+# Verify health first
 cargo run -p atlasctl-cli -- doctor
 cargo run -p atlasctl-cli -- check --profile ci
 
+# Map your change to proof surface
+cargo run -p atlasctl-cli -- impacted --base main --head HEAD
+
 # Review impact and proof chains
-cargo run -p atlasctl-cli -- impacted --base main --format gh-summary
-cargo run -p atlasctl-cli -- why scen:build-emits-canonical-atlas
+cargo run -p atlasctl-cli -- why --path crates/atlasctl-core/src/lib.rs
+cargo run -p atlasctl-cli -- why req:deterministic-atlas
+
+# Export review payloads
+cargo run -p atlasctl-cli -- export --format review-packet --out .atlas/atlas.review-packet.md
+cargo run -p atlasctl-cli -- export --format gh-summary --out .atlas/atlas.gh-summary.md
 
 # Navigate the graph
 cargo run -p atlasctl-cli -- query scen:build-emits-canonical-atlas
 cargo run -p atlasctl-cli -- trace req:deterministic-atlas
-cargo run -p atlasctl-cli -- export --format markdown
 ```
