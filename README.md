@@ -1,80 +1,114 @@
 # atlasctl
 
-[![CI](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/ci.yml)
-[![Coverage](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/coverage.yml)
-[![Codecov](https://codecov.io/gh/EffortlessMetrics/atlasctl/branch/main/graph/badge.svg)](https://codecov.io/gh/EffortlessMetrics/atlasctl)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+`atlasctl` is a **local-first proof-topology control surface** for maintainers and reviewers.
 
-`atlasctl` is a local-first scenario and proof atlas for Rust-style repositories.
+It compiles explicit repository metadata into a deterministic graph so you can answer:
 
-It transforms repository metadata into a deterministic, queryable graph to provide **behavior-aware review and proof routing**.
+- What behavior exists?
+- What proves it?
+- What changed?
+- Who owns it?
+- What proof is missing?
 
-## Core Operational Workflow
+## What atlasctl is
 
-`atlasctl` is designed to be part of your daily development and CI workflow.
+- Compile canonical artifacts with stable, repo-relative output (`.atlas/atlas.json` + projections).
+- Answer proof questions (`why`), impact questions (`impacted`), and graph health (`doctor`) quickly during review.
+- Track adoption through explicit metadata, not inference.
+- Keep evidence local-first and review-oriented.
 
-### 1. Self-Policing with `doctor`
-Catch graph drift, dead selectors, and orphan nodes before they become a problem.
+## What atlasctl is not
+
+- A deep language intelligence engine.
+- A test runner.
+- A hosted decision platform.
+- AI inference or probabilistic explanation layer.
+- A generic docs renderer.
+
+## Core operational workflow
+
+1. **Map a diff to review targets**
+
 ```bash
-atlasctl doctor
-```
-
-### 2. Review-time Impact Analysis
-Map a diff to behavior, proof surfaces, and documentation.
-```bash
-# Analyze impact of local changes vs main
 atlasctl impacted --base main --head HEAD
-
-# Use in CI for a compact summary
-atlasctl impacted --format gh-summary
 ```
 
-### 3. Semantic Navigation with `why`
-Project a short, readable proof chain for any node or path to understand its purpose and verification.
+2. **Check graph health**
+
 ```bash
+atlasctl doctor --format json
+
+atlasctl doctor --format gh-summary
+```
+
+3. **Explain an ID or file path**
+
+```bash
+atlasctl why req:deterministic-atlas
 atlasctl why --path crates/atlasctl-core/src/lib.rs
 ```
 
-## Onboarding and Scaffolding
-
-Bootstrap a new atlas or add new proof surfaces quickly:
+4. **How is the graph built and projected?**
 
 ```bash
-# Initialize a new repository
-atlasctl init
-
-# Scaffold a new scenario, artifact, or requirement
-atlasctl scaffold scenario my-new-feature
+atlasctl build
+atlasctl check --profile ci
+atlasctl query scen:build-emits-canonical-atlas
+atlasctl trace req:deterministic-atlas --direction reverse --depth 2
+atlasctl export --format gh-summary --out .atlas/atlas.gh-summary.md
+atlasctl export --format review-packet --out .atlas/atlas.review-packet.md
 ```
 
-## Repository Intelligence
+5. **Keep metadata friction low**
 
-`atlasctl` compiles declared metadata about:
-- **Requirements**: Behavioral goals of the system.
-- **ADRs**: Architecture Decision Records.
-- **Scenarios**: Concrete behaviors that prove requirements.
-- **Fixtures**: Models or data used in proof.
-- **Commands**: Operational tasks or test runners.
-- **Artifacts**: Outputs to be inspected.
-- **Crates**: Infrastructure components.
+```bash
+atlasctl init
+atlasctl scaffold requirement deterministic-atlas
+atlasctl scaffold scenario build-emits-canonical-atlas
+atlasctl scaffold artifact atlas-json
+```
 
-The result is a stable `atlas.json` (machine-facing) and a human-readable `atlas.md`.
+## Command surface
 
-## Installation
+- `init` — generate initial `atlas.toml`.
+- `build` — compile graph and render artifacts.
+- `check` — validate current graph for chosen profile.
+- `doctor` — profile-driven health summary.
+- `impacted` — review diff/path impact.
+- `why` — short proof chain for ID or path.
+- `query` / `trace` — graph exploration utilities.
+- `export` — deterministic projection writer.
+- `scaffold` — generate metadata stubs.
+
+## Configuration and specs
+
+- [Overview](docs/specs/000-overview.md): definition, trust boundaries, and workflow
+- [Graph model](docs/specs/010-graph-model.md): kinds, roles, IDs, and edges
+- [Config](docs/specs/020-config.md): discovery and profile contract
+- [Metadata fragments](docs/specs/030-metadata-fragments.md): `*.atlas.yaml` shape
+- [Markdown frontmatter](docs/specs/040-markdown-frontmatter.md): lightweight inline metadata
+- [Validation profiles](docs/specs/050-validation-profiles.md): rule severity and policy
+- [Artifact protocol](docs/specs/060-artifact-protocol.md): machine output contracts
+- [Review impact](docs/specs/070-review-impact.md): diff-to-proof projection rules
+- [CLI contract](docs/specs/080-cli-contract.md): command and format matrix
+- [Compatibility](docs/specs/090-compatibility.md): schema and protocol evolution
+
+## Install and build
 
 ```bash
 cargo build --release
 ```
+
 Requires Rust 1.92 or later (Edition 2024).
 
-## Current Status (v0.1.0)
+## Current status (v0.1.0)
 
-- ✅ **Operational CLI**: Deep support for `doctor`, `impacted`, and `why`.
-- ✅ **Deterministic Artifacts**: Stable JSON schema and repo-relative pathing.
-- ✅ **Owner Overlays**: Integrated `CODEOWNERS` support.
-- ✅ **CI Optimized**: Dedicated GitHub step summary output.
-- ✅ **Scaffolding**: Low-friction `init` and `scaffold` commands.
+- ✅ operational review flow (`doctor`, `impacted`, `why`)
+- ✅ deterministic artifacts (`atlas.json`) and stable ordering
+- ✅ ownership/participation metadata supported via `owns` and `touches`
+- ✅ ownership diagnostics enforce duplicate-`owns` policy and track `touches` overlap
+- ✅ `init` and `scaffold` are available for low-friction onboarding
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).

@@ -22,16 +22,16 @@ This repo follows a layered verification model.
 - codeowner overlay tests
 
 ### Render
-- snapshot and golden tests for `atlas.json`, `atlas.md`, and GitHub step summaries (`gh-summary.md`)
+- snapshot and golden tests for `atlas.json`, `atlas.md`, and review/CI projections (`gh-summary.md`, `review-packet.md`)
 
 ### CLI
 - smoke tests
 - exit-code tests
-- end-to-end output tests for all commands: `build`, `check`, `doctor`, `impacted`, `why`, `query`, `trace`, `init`, and `scaffold`
+- end-to-end output tests for all commands: `build`, `check`, `doctor`, `impacted`, `why`, `query`, `trace`, `init`, `scaffold`, and `export`
 
 ## Test coverage summary
 
-The project currently has **111+ tests** across all crates:
+The project has broad coverage across all crates:
 
 - **BDD tests**: Scenario-based tests validating graph semantics
 - **Property tests**: Proptest-based tests for determinism and integrity
@@ -99,7 +99,7 @@ cargo run -p xtask -- golden
 `atlas.json` is the contract. If it changes intentionally:
 
 1. update the schema if needed (`schemas/atlas.schema.json`)
-2. update golden outputs
+2. update golden outputs (json, markdown, and projection formats)
 3. update docs and examples
 
 ## CI checks

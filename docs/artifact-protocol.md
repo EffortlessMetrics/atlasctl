@@ -1,49 +1,38 @@
-# Artifact Protocol
+# Artifact protocol
 
-This document defines the formal artifact protocol for `atlasctl`, ensuring stable, versioned, and trustworthy machine-facing outputs.
+Use `docs/specs/060-artifact-protocol.md` for the contract.
 
-## Protocol Surfaces
+This document summarizes production behavior.
 
-`atlasctl` provides four primary machine-facing JSON surfaces:
+## Output matrix
 
-1.  **Atlas Graph (`atlas.json`)**: The canonical representation of the repository proof topology.
-2.  **Impact Analysis (`impact.json`)**: review-time mapping of diffs to behaviors.
-3.  **Proof Chain (`why.json`)**: Curated semantic projection for a specific node or path.
-4.  **Diagnostics (`doctor.json`)**: maintenance and drift reports.
+| Command | JSON | Markdown | gh-summary | review-packet |
+|---|---|---|---|---|
+| `build` | `atlas.json` | `atlas.md` | n/a | n/a |
+| `check` / `doctor` | graph contract + diagnostics | rendered projection | review summary | review packet |
+| `why` | `WhyResponse` | rendered proof chain | compact review prose | review packet |
+| `impacted` | `ImpactResponse` | impacted projection | compact review prose | review packet |
+| `query` / `trace` | text (current) | text (current) | n/a | n/a |
+| `export` | configurable | configurable | configurable | configurable |
 
-## Versioning Policy
+## Invariants
 
--   **Schema Version**: The `schema_version` field in `atlas.json` tracks material changes to the canonical graph model.
--   **Semantic Versioning**: `atlasctl` follows SemVer for its CLI and crate interfaces.
--   **Breaking Changes**: Material removals or renames of existing JSON fields are considered breaking changes and will trigger a major version bump and a schema version increment.
+- All machine outputs are schema-backed.
+- path values are repo-relative and slash-normalized.
+- diagnostics are attached when validation is requested.
+- output ordering is stable and deterministic.
 
-## Compatibility Rules
+## Schema governance
 
-To maintain a stable control surface, `atlasctl` adheres to the following compatibility rules:
+Current schema artifacts are in `schemas/`:
 
-### 1. Stable Fields
--   Core identifiers (`id`, `kind`, `role`) are stable.
--   Provenance and location structures are stable.
--   Metrics keys are stable.
+- `atlas.schema.json`
+- `impact.schema.json`
+- `why.schema.json`
+- `doctor.schema.json`
 
-### 2. Canonical Ordering
--   All JSON lists (nodes, edges, diagnostics, impact hits) are deterministically sorted by ID or path to ensure stable diffs and reproducible artifacts.
+Regenerate after contract changes:
 
-### 3. Path Portability
--   All paths in artifacts are **repo-relative** and **forward-slash normalized**.
--   Absolute machine-local paths (e.g., `/home/user/...` or `C:\Users\...`) are strictly forbidden in machine-facing outputs.
-
-## Release Gate: Schema Verification
-
-The `xtask schema --check` task is a formal part of the release bar. It ensures:
-1.  All committed schemas in `schemas/` match the current implementation.
-2.  Any intentional protocol changes are explicitly reviewed alongside the code.
-
-To update schemas after a valid protocol change:
 ```bash
 cargo run -p xtask -- schema
 ```
-
-## Future Expansion
-
-The protocol is designed to be extensible. New fields may be added (non-breaking) to provide deeper code intelligence or better integration with remote services in future versions.
