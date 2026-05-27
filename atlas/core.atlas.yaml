@@ -121,7 +121,7 @@ edges:
 
   - from: scen:full-release-verification
     kind: exercises
-    to: crate:atlasctl-codes
+    to: crate:atlasctl-types
 
   - from: scen:full-release-verification
     kind: exercises
