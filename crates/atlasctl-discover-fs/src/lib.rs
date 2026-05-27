@@ -226,7 +226,7 @@ fn load_config(
             Err(err) => {
                 diagnostics.push(AtlasDiagnostic::new(
                     DiagnosticCode::InvalidConfig,
-                    format!("failed to parse `{}`: {err}", rel),
+                    format!("failed to parse `{}`: {err}", path_text(&rel)),
                     None,
                     Some(location(&rel)),
                 ));
@@ -236,7 +236,7 @@ fn load_config(
         Err(err) => {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::InvalidConfig,
-                format!("failed to read `{}`: {err}", rel),
+                format!("failed to read `{}`: {err}", path_text(&rel)),
                 None,
                 Some(location(&rel)),
             ));
@@ -369,7 +369,7 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::DiscoveryFailure,
-                format!("failed to read `{}`: {err}", rel_path),
+                format!("failed to read `{}`: {err}", path_text(rel_path)),
                 None,
                 Some(location(rel_path)),
             ));
@@ -382,7 +382,11 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::MalformedFragment,
-                format!("failed to parse fragment `{}`: {}", rel_path, err),
+                format!(
+                    "failed to parse fragment `{}`: {}",
+                    path_text(rel_path),
+                    err
+                ),
                 None,
                 Some(location(rel_path)),
             ));
@@ -407,7 +411,10 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     if batch.nodes.is_empty() && batch.edges.is_empty() {
         batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::EmptyFragment,
-            format!("fragment file `{}` contains no atlas metadata", rel_path),
+            format!(
+                "fragment file `{}` contains no atlas metadata",
+                path_text(rel_path)
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -464,7 +471,7 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::DiscoveryFailure,
-                format!("failed to read `{}`: {err}", rel_path),
+                format!("failed to read `{}`: {err}", path_text(rel_path)),
                 None,
                 Some(location(rel_path)),
             ));
@@ -481,7 +488,10 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::MalformedFragment,
-                format!("failed to parse frontmatter `{}`: {err}", rel_path),
+                format!(
+                    "failed to parse frontmatter `{}`: {err}",
+                    path_text(rel_path)
+                ),
                 None,
                 Some(location(rel_path)),
             ));
@@ -496,7 +506,10 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     let Some(id) = raw.id else {
         batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::MalformedFragment,
-            format!("frontmatter in `{}` is missing `atlas.id`", rel_path),
+            format!(
+                "frontmatter in `{}` is missing `atlas.id`",
+                path_text(rel_path)
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -506,7 +519,10 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     let Some(kind) = raw.kind else {
         batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::MalformedFragment,
-            format!("frontmatter in `{}` is missing `atlas.kind`", rel_path),
+            format!(
+                "frontmatter in `{}` is missing `atlas.kind`",
+                path_text(rel_path)
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -529,7 +545,7 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         } else if !raw.paths.is_empty() {
             raw.paths
         } else {
-            vec![rel_path.as_str().to_string()]
+            vec![path_text(rel_path)]
         },
         touches: raw.touches,
         attrs: raw.attrs,
@@ -590,7 +606,7 @@ fn push_frontmatter_edge(
         }),
         _ => batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::InvalidId,
-            format!("invalid edge IDs in `{}`", rel_path),
+            format!("invalid edge IDs in `{}`", path_text(rel_path)),
             None,
             Some(location(rel_path)),
         )),
@@ -614,7 +630,7 @@ fn parse_node(
     let kind = raw.kind.parse::<NodeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownNodeKind,
-            format!("unknown node kind `{invalid}` in `{}`", rel_path),
+            format!("unknown node kind `{invalid}` in `{}`", path_text(rel_path)),
             Some(id.clone()),
             Some(location(rel_path)),
         )
@@ -667,7 +683,7 @@ fn parse_edge(
     let kind = raw.kind.parse::<EdgeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownEdgeKind,
-            format!("unknown edge kind `{invalid}` in `{}`", rel_path),
+            format!("unknown edge kind `{invalid}` in `{}`", path_text(rel_path)),
             Some(from.clone()),
             Some(location(rel_path)),
         )
@@ -910,6 +926,10 @@ fn location(path: &Utf8Path) -> atlasctl_types::SourceLocation {
         line: None,
         column: None,
     }
+}
+
+fn path_text(path: &Utf8Path) -> String {
+    RepoRelativePath::new(path.as_str()).to_string()
 }
 
 fn extract_frontmatter(contents: &str) -> Option<(String, &str)> {
