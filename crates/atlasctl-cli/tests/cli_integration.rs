@@ -698,6 +698,26 @@ fn test_impacted_review_packet() {
         .stdout(predicate::str::contains("## ✅ Next Actions"));
 }
 
+#[test]
+fn test_review_packet_command() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"));
+}
+
 // ============================================================================
 // EXPORT COMMAND TESTS
 // ============================================================================

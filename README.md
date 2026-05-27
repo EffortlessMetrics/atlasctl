@@ -27,6 +27,12 @@ atlasctl impacted --base main --head HEAD
 
 # Use in CI for a compact summary
 atlasctl impacted --format gh-summary
+
+# Get a review packet for a PR-style path diff
+atlasctl review-packet --base main --head HEAD
+
+# Or for explicit path-focused review packets
+atlasctl review-packet --paths "crates/engine" "src/main.rs"
 ```
 
 ### 3. Semantic Navigation with `why`

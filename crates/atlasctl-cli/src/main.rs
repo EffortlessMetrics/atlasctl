@@ -32,6 +32,7 @@ enum Command {
     Check(CheckArgs),
     Doctor(DoctorArgs),
     Impacted(ImpactedArgs),
+    ReviewPacket(ReviewPacketArgs),
     Why(WhyArgs),
     Query(QueryArgs),
     Trace(TraceArgs),
@@ -106,6 +107,18 @@ struct ImpactedArgs {
     paths: Option<Vec<String>>,
     #[arg(long, value_enum, default_value_t = OutputArg::Text)]
     format: OutputArg,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ReviewPacketArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    #[arg(long)]
+    base: Option<String>,
+    #[arg(long)]
+    head: Option<String>,
+    #[arg(long, value_delimiter = ' ')]
+    paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -462,21 +475,7 @@ edges:
             })
         }
         Command::Impacted(args) => {
-            let source = if let Some(paths) = args.paths {
-                ImpactSource::Paths(
-                    paths
-                        .into_iter()
-                        .map(|p| ChangedPath {
-                            path: RepoRelativePath::new(p),
-                        })
-                        .collect(),
-                )
-            } else {
-                ImpactSource::Diff {
-                    base: args.base.unwrap_or_else(|| "main".to_string()),
-                    head: args.head.unwrap_or_else(|| "HEAD".to_string()),
-                }
-            };
+            let source = impact_source(args.paths, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -516,6 +515,28 @@ edges:
                     println!("{md}");
                 }
             }
+
+            if outcome.has_uncovered_error {
+                Ok(ExitCode::ValidationFailed)
+            } else {
+                Ok(ExitCode::Ok)
+            }
+        }
+        Command::ReviewPacket(args) => {
+            let source = impact_source(args.paths, args.base, args.head);
+
+            let outcome = service
+                .impacted(&ImpactOptions {
+                    compile: compile_options(&args.common),
+                    request: source,
+                })
+                .map_err(|err| format!("review-packet failed: {err}"))?;
+
+            let md = service
+                .renderer
+                .render_impact(&outcome.response, RenderFormat::ReviewPacket)
+                .map_err(|err| format!("failed to render review packet: {err}"))?;
+            println!("{md}");
 
             if outcome.has_uncovered_error {
                 Ok(ExitCode::ValidationFailed)
@@ -713,6 +734,28 @@ fn compile_options(common: &CommonArgs) -> CompileOptions {
         repo_root: common.repo_root.clone(),
         config_path: common.config.clone(),
         profile: common.profile.into(),
+    }
+}
+
+fn impact_source(
+    paths: Option<Vec<String>>,
+    base: Option<String>,
+    head: Option<String>,
+) -> ImpactSource {
+    if let Some(paths) = paths {
+        ImpactSource::Paths(
+            paths
+                .into_iter()
+                .map(|p| ChangedPath {
+                    path: RepoRelativePath::new(p),
+                })
+                .collect(),
+        )
+    } else {
+        ImpactSource::Diff {
+            base: base.unwrap_or_else(|| "main".to_string()),
+            head: head.unwrap_or_else(|| "HEAD".to_string()),
+        }
     }
 }
 
