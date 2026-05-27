@@ -1001,9 +1001,7 @@ fn normalize_slug(input: &str) -> String {
         }
     }
 
-    while output.ends_with('-') {
-        output.pop();
-    }
+    let output = output.trim_matches('-').to_string();
 
     if output.is_empty() {
         "gap".to_string()
