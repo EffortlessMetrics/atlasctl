@@ -699,7 +699,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             .then_with(|| left.message.cmp(&right.message))
     });
 
-    let mut scope_warnings = Vec::new();
+    let mut scope_warnings = compute_scope_warnings(request, &impacted);
     if !uncovered.is_empty() {
         scope_warnings.push(format!(
             "`{}` changed paths are not covered by any known ownership/touches selector",
@@ -714,7 +714,6 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             "active-goal metadata is not complete; check `.codex/goals/active.toml`".to_string(),
         );
     }
-
     let mut suggested_fixes = missing_evidence
         .iter()
         .filter_map(|diagnostic| match diagnostic.code {
@@ -744,6 +743,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
         .collect::<Vec<_>>();
     suggested_fixes.sort();
     suggested_fixes.dedup();
+    maybe_sort_and_dedup_scope_warnings(&mut scope_warnings);
 
     let mut impacted_list: Vec<_> = impacted.into_values().collect();
     impacted_list.sort_by(|a, b| a.node.id.cmp(&b.node.id));
@@ -756,6 +756,161 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
         scope_warnings,
         suggested_fixes,
     }
+}
+
+fn compute_scope_warnings(
+    request: &ImpactRequest,
+    impacted: &BTreeMap<AtlasId, ImpactHit>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    let mut has_workflow = false;
+    let mut has_schema = false;
+    let mut has_support_tier = false;
+    let mut has_generated = false;
+
+    let mut impacted_has_protocol_spec = false;
+    let mut impacted_has_policy_ledger = false;
+    let mut impacted_has_command = false;
+    let mut impacted_has_artifact = false;
+    let mut impacted_has_non_document_surface = false;
+
+    for changed in &request.paths {
+        let path = changed.path.as_str();
+        if is_workflow_path(path) {
+            has_workflow = true;
+        }
+        if is_schema_path(path) {
+            has_schema = true;
+        }
+        if is_support_tier_claim_path(path) {
+            has_support_tier = true;
+        }
+        if is_generated_path(path) {
+            has_generated = true;
+        }
+    }
+
+    for hit in impacted.values() {
+        match hit.node.kind {
+            NodeKind::Spec | NodeKind::Proposal | NodeKind::Adr => {
+                impacted_has_protocol_spec = true;
+            }
+            NodeKind::PolicyLedger => impacted_has_policy_ledger = true,
+            NodeKind::Command => impacted_has_command = true,
+            NodeKind::Artifact => impacted_has_artifact = true,
+            _ => {}
+        }
+        if hit.node.role != NodeRole::Document {
+            impacted_has_non_document_surface = true;
+        }
+    }
+
+    let docs_only = !request.paths.is_empty()
+        && request
+            .paths
+            .iter()
+            .all(|changed| is_documentation_path(changed.path.as_str()));
+
+    if docs_only && impacted_has_non_document_surface {
+        warnings.push(
+            "documentation-only paths affect non-document surfaces; split review scope if this is not a docs-only PR"
+                .to_string(),
+        );
+    }
+    if request
+        .paths
+        .iter()
+        .any(|changed| is_implementation_path(changed.path.as_str()))
+        && request
+            .paths
+            .iter()
+            .any(|changed| is_documentation_path(changed.path.as_str()))
+    {
+        warnings.push(
+            "path set mixes documentation and implementation files; avoid one-off scope mismatches"
+                .to_string(),
+        );
+    }
+    if has_workflow && !impacted_has_policy_ledger {
+        warnings.push(
+            "workflow file changed but no policy ledger node was impacted; add/adjust `policy_ledger` coverage"
+                .to_string(),
+        );
+    }
+    if has_schema && !impacted_has_protocol_spec {
+        warnings.push(
+            "schema change is not linked to a protocol spec/proposal/doc artifact; update the relevant spec"
+                .to_string(),
+        );
+    }
+    if has_support_tier && !impacted_has_command {
+        warnings.push(
+            "support tier claim changed but no proof command was impacted; add/update proof command coverage"
+                .to_string(),
+        );
+    }
+    if has_generated && !impacted_has_artifact {
+        warnings.push(
+            "generated artifact changed without an impacted artifact node; validate output path ownership"
+                .to_string(),
+        );
+    }
+
+    maybe_sort_and_dedup_scope_warnings(&mut warnings);
+    warnings
+}
+
+fn maybe_sort_and_dedup_scope_warnings(scope_warnings: &mut Vec<String>) {
+    scope_warnings.sort();
+    scope_warnings.dedup();
+}
+
+fn is_documentation_path(path: &str) -> bool {
+    path == "README.md"
+        || path == "CHANGELOG.md"
+        || path.starts_with("docs/")
+        || path.ends_with(".md")
+        || path.ends_with(".mdx")
+}
+
+fn is_implementation_path(path: &str) -> bool {
+    path.starts_with("crates/")
+        || path.starts_with("src/")
+        || path.starts_with("examples/")
+        || path.ends_with(".rs")
+        || path.ends_with(".toml")
+        || path.ends_with(".yaml")
+        || path.ends_with(".yml")
+}
+
+fn is_workflow_path(path: &str) -> bool {
+    path.starts_with(".github/workflows/")
+}
+
+fn is_schema_path(path: &str) -> bool {
+    path.starts_with("schemas/")
+        || path.starts_with(".schema/")
+        || path.ends_with(".schema.json")
+        || path.ends_with(".schema.yaml")
+        || path.ends_with(".schema.yml")
+        || path.ends_with("/schema.json")
+        || path.ends_with("/schema.yaml")
+        || path.ends_with("/schema.yml")
+}
+
+fn is_support_tier_claim_path(path: &str) -> bool {
+    path.ends_with("SUPPORT_TIERS.md") || path.ends_with("support_tiers.md")
+}
+
+fn is_generated_path(path: &str) -> bool {
+    path.starts_with("target/")
+        || path.starts_with("dist/")
+        || path.starts_with("out/")
+        || path.starts_with("coverage/")
+        || path.starts_with(".cache/")
+        || path.ends_with(".snap")
+        || path.ends_with(".generated.rs")
 }
 
 fn validate_completeness(
@@ -2060,6 +2215,166 @@ mod tests {
                 .iter()
                 .any(|h| h.node.id.as_str() == "support_tier:docs-support")
         );
+    }
+
+    #[test]
+    fn scope_warning_for_workflow_change_without_policy_ledgers() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: ".github/workflows/ci.yml".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("workflow file changed but no policy ledger"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_schema_change_without_protocol_nodes() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "schemas/atlas.schema.json".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("schema change is not linked to a protocol spec"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_support_tier_claim_change_without_command() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node_with_touches(
+                    "support_tier:docs-support",
+                    NodeKind::SupportTier,
+                    &["docs/status/SUPPORT_TIERS.md"],
+                )],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/status/SUPPORT_TIERS.md".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("support tier claim changed but no proof command"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_generated_artifact_change_without_artifact_node() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "target/debug/build-output.json".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("generated artifact changed"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_docs_only_paths_with_non_document_impacts() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node_with_touches(
+                    "scen:example-build",
+                    NodeKind::Scenario,
+                    &["docs/implementation-plan.md"],
+                )],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/implementation-plan.md".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(response.scope_warnings.iter().any(|warning| {
+            warning.contains("documentation-only paths affect non-document surfaces")
+        }));
     }
 
     /// SCENARIO: Querying the atlas with different search terms
