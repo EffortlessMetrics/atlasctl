@@ -3,93 +3,97 @@ source: crates/atlasctl-core/src/lib.rs
 expression: json
 ---
 {
-  "root": {
-    "id": "scen:example-build",
-    "kind": "scenario",
-    "role": "proof",
-    "title": "Example build",
-    "summary": null,
-    "owns": [
-      {
-        "pattern": "crates/engine/src/lib.rs"
+  "schema_version": 1,
+  "command": "why",
+  "payload": {
+    "root": {
+      "id": "scen:example-build",
+      "kind": "scenario",
+      "role": "proof",
+      "title": "Example build",
+      "summary": null,
+      "owns": [
+        {
+          "pattern": "crates/engine/src/lib.rs"
+        }
+      ],
+      "touches": [],
+      "attrs": {},
+      "provenance": {
+        "source": "atlas/example.atlas.yaml",
+        "line": null,
+        "column": null,
+        "fragment": null
       }
-    ],
-    "touches": [],
-    "attrs": {},
-    "provenance": {
-      "source": "atlas/example.atlas.yaml",
-      "line": null,
-      "column": null,
-      "fragment": null
-    }
-  },
-  "chain": [
-    {
-      "node": {
-        "id": "cmd:ci-fast",
-        "kind": "command",
-        "role": "command",
-        "title": "Fast CI",
-        "summary": null,
-        "owns": [],
-        "touches": [],
-        "attrs": {},
-        "provenance": {
-          "source": "atlas/example.atlas.yaml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
-      },
-      "relationship": "runs_with",
-      "direction": "outgoing"
     },
-    {
-      "node": {
-        "id": "artifact:example-report",
-        "kind": "artifact",
-        "role": "artifact",
-        "title": "Example report",
-        "summary": null,
-        "owns": [],
-        "touches": [],
-        "attrs": {},
-        "provenance": {
-          "source": "atlas/example.atlas.yaml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
-      },
-      "relationship": "emits",
-      "direction": "outgoing"
-    },
-    {
-      "node": {
-        "id": "crate:engine",
-        "kind": "crate",
-        "role": "infra",
-        "title": "engine",
-        "summary": null,
-        "owns": [
-          {
-            "pattern": "crates/engine"
+    "chain": [
+      {
+        "node": {
+          "id": "cmd:ci-fast",
+          "kind": "command",
+          "role": "command",
+          "title": "Fast CI",
+          "summary": null,
+          "owns": [],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
           }
-        ],
-        "touches": [],
-        "attrs": {
-          "manifest_path": "crates/engine/Cargo.toml",
-          "version": "0.1.0"
         },
-        "provenance": {
-          "source": "Cargo.toml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
+        "relationship": "runs_with",
+        "direction": "outgoing"
       },
-      "relationship": "exercises",
-      "direction": "outgoing"
-    }
-  ]
+      {
+        "node": {
+          "id": "artifact:example-report",
+          "kind": "artifact",
+          "role": "artifact",
+          "title": "Example report",
+          "summary": null,
+          "owns": [],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
+          }
+        },
+        "relationship": "emits",
+        "direction": "outgoing"
+      },
+      {
+        "node": {
+          "id": "crate:engine",
+          "kind": "crate",
+          "role": "infra",
+          "title": "engine",
+          "summary": null,
+          "owns": [
+            {
+              "pattern": "crates/engine"
+            }
+          ],
+          "touches": [],
+          "attrs": {
+            "manifest_path": "crates/engine/Cargo.toml",
+            "version": "0.1.0"
+          },
+          "provenance": {
+            "source": "Cargo.toml",
+            "line": null,
+            "column": null,
+            "fragment": null
+          }
+        },
+        "relationship": "exercises",
+        "direction": "outgoing"
+      }
+    ]
+  }
 }

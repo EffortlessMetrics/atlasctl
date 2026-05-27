@@ -2,8 +2,8 @@
 
 use atlasctl_ports::{RenderError, RenderPort};
 use atlasctl_types::{
-    AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactResponse, NodeKind, RenderFormat,
-    WhyResponse,
+    AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactEnvelope, ImpactResponse, NodeKind,
+    RenderFormat, WhyEnvelope, WhyResponse,
 };
 
 #[derive(Debug, Default)]
@@ -27,9 +27,12 @@ impl RenderPort for AtlasRenderer {
         format: RenderFormat,
     ) -> Result<String, RenderError> {
         match format {
-            RenderFormat::Json => serde_json::to_string_pretty(response).map_err(|err| {
-                RenderError::Message(format!("failed to render why response as JSON: {err}"))
-            }),
+            RenderFormat::Json => {
+                let envelope = WhyEnvelope::for_command("why", response.clone());
+                serde_json::to_string_pretty(&envelope).map_err(|err| {
+                    RenderError::Message(format!("failed to render why response as JSON: {err}"))
+                })
+            }
             RenderFormat::Markdown | RenderFormat::GitHubSummary | RenderFormat::ReviewPacket => {
                 Ok(render_why_markdown(response))
             }
@@ -42,9 +45,12 @@ impl RenderPort for AtlasRenderer {
         format: RenderFormat,
     ) -> Result<String, RenderError> {
         match format {
-            RenderFormat::Json => serde_json::to_string_pretty(response).map_err(|err| {
-                RenderError::Message(format!("failed to render impact response as JSON: {err}"))
-            }),
+            RenderFormat::Json => {
+                let envelope = ImpactEnvelope::for_command("impacted", response.clone());
+                serde_json::to_string_pretty(&envelope).map_err(|err| {
+                    RenderError::Message(format!("failed to render impact response as JSON: {err}"))
+                })
+            }
             RenderFormat::Markdown => Ok(render_impact_markdown(response)),
             RenderFormat::GitHubSummary => Ok(render_impact_gh_summary(response)),
             RenderFormat::ReviewPacket => Ok(render_review_packet(response)),

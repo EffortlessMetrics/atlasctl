@@ -3,118 +3,122 @@ source: crates/atlasctl-core/src/lib.rs
 expression: json
 ---
 {
-  "impacted": [
-    {
-      "node": {
-        "id": "artifact:example-report",
-        "kind": "artifact",
-        "role": "artifact",
-        "title": "Example report",
-        "summary": null,
-        "owns": [],
-        "touches": [],
-        "attrs": {},
-        "provenance": {
-          "source": "atlas/example.atlas.yaml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
-      },
-      "reason": "related to `scen:example-build` via `emits`",
-      "owners": []
-    },
-    {
-      "node": {
-        "id": "cmd:ci-fast",
-        "kind": "command",
-        "role": "command",
-        "title": "Fast CI",
-        "summary": null,
-        "owns": [],
-        "touches": [],
-        "attrs": {},
-        "provenance": {
-          "source": "atlas/example.atlas.yaml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
-      },
-      "reason": "related to `scen:example-build` via `runs_with`",
-      "owners": []
-    },
-    {
-      "node": {
-        "id": "crate:engine",
-        "kind": "crate",
-        "role": "infra",
-        "title": "engine",
-        "summary": null,
-        "owns": [
-          {
-            "pattern": "crates/engine"
+  "schema_version": 1,
+  "command": "impacted",
+  "payload": {
+    "impacted": [
+      {
+        "node": {
+          "id": "artifact:example-report",
+          "kind": "artifact",
+          "role": "artifact",
+          "title": "Example report",
+          "summary": null,
+          "owns": [],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
           }
-        ],
-        "touches": [],
-        "attrs": {
-          "manifest_path": "crates/engine/Cargo.toml",
-          "version": "0.1.0"
         },
-        "provenance": {
-          "source": "Cargo.toml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
+        "reason": "related to `scen:example-build` via `emits`",
+        "owners": []
       },
-      "reason": "related to `scen:example-build` via `exercises`",
-      "owners": []
-    },
-    {
-      "node": {
-        "id": "req:example",
-        "kind": "requirement",
-        "role": "behavior",
-        "title": "Example requirement",
-        "summary": null,
-        "owns": [],
-        "touches": [],
-        "attrs": {},
-        "provenance": {
-          "source": "atlas/example.atlas.yaml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
-      },
-      "reason": "related to `scen:example-build` via `proves`",
-      "owners": []
-    },
-    {
-      "node": {
-        "id": "scen:example-build",
-        "kind": "scenario",
-        "role": "proof",
-        "title": "Example build",
-        "summary": null,
-        "owns": [
-          {
-            "pattern": "crates/engine/src/lib.rs"
+      {
+        "node": {
+          "id": "cmd:ci-fast",
+          "kind": "command",
+          "role": "command",
+          "title": "Fast CI",
+          "summary": null,
+          "owns": [],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
           }
-        ],
-        "touches": [],
-        "attrs": {},
-        "provenance": {
-          "source": "atlas/example.atlas.yaml",
-          "line": null,
-          "column": null,
-          "fragment": null
-        }
+        },
+        "reason": "related to `scen:example-build` via `runs_with`",
+        "owners": []
       },
-      "reason": "matches changed path `crates/engine/src/lib.rs`",
-      "owners": []
-    }
-  ],
-  "uncovered": []
+      {
+        "node": {
+          "id": "crate:engine",
+          "kind": "crate",
+          "role": "infra",
+          "title": "engine",
+          "summary": null,
+          "owns": [
+            {
+              "pattern": "crates/engine"
+            }
+          ],
+          "touches": [],
+          "attrs": {
+            "manifest_path": "crates/engine/Cargo.toml",
+            "version": "0.1.0"
+          },
+          "provenance": {
+            "source": "Cargo.toml",
+            "line": null,
+            "column": null,
+            "fragment": null
+          }
+        },
+        "reason": "related to `scen:example-build` via `exercises`",
+        "owners": []
+      },
+      {
+        "node": {
+          "id": "req:example",
+          "kind": "requirement",
+          "role": "behavior",
+          "title": "Example requirement",
+          "summary": null,
+          "owns": [],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
+          }
+        },
+        "reason": "related to `scen:example-build` via `proves`",
+        "owners": []
+      },
+      {
+        "node": {
+          "id": "scen:example-build",
+          "kind": "scenario",
+          "role": "proof",
+          "title": "Example build",
+          "summary": null,
+          "owns": [
+            {
+              "pattern": "crates/engine/src/lib.rs"
+            }
+          ],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
+          }
+        },
+        "reason": "matches changed path `crates/engine/src/lib.rs`",
+        "owners": []
+      }
+    ],
+    "uncovered": []
+  }
 }

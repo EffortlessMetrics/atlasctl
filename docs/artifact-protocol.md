@@ -8,12 +8,14 @@ This document defines the formal artifact protocol for `atlasctl`, ensuring stab
 
 1.  **Atlas Graph (`atlas.json`)**: The canonical representation of the repository proof topology.
 2.  **Impact Analysis (`impact.json`)**: review-time mapping of diffs to behaviors.
+    - Contains a protocol envelope with `schema_version`, `command`, and `payload`.
 3.  **Proof Chain (`why.json`)**: Curated semantic projection for a specific node or path.
+    - Contains a protocol envelope with `schema_version`, `command`, and `payload`.
 4.  **Diagnostics (`doctor.json`)**: maintenance and drift reports.
 
 ## Versioning Policy
 
--   **Schema Version**: The `schema_version` field in `atlas.json` tracks material changes to the canonical graph model.
+-   **Schema Version**: The `schema_version` field in protocol JSON envelopes tracks material changes to the corresponding output shape.
 -   **Semantic Versioning**: `atlasctl` follows SemVer for its CLI and crate interfaces.
 -   **Breaking Changes**: Material removals or renames of existing JSON fields are considered breaking changes and will trigger a major version bump and a schema version increment.
 

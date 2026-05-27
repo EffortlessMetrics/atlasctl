@@ -1,20 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "WhyResponse",
+  "title": "WhyEnvelope",
   "type": "object",
   "required": [
-    "chain",
-    "root"
+    "command",
+    "payload",
+    "schema_version"
   ],
   "properties": {
-    "chain": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/WhyStep"
-      }
+    "command": {
+      "type": "string"
     },
-    "root": {
-      "$ref": "#/definitions/AtlasNode"
+    "payload": {
+      "$ref": "#/definitions/WhyResponse"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
     }
   },
   "definitions": {
@@ -162,6 +165,24 @@
         "incoming",
         "both"
       ]
+    },
+    "WhyResponse": {
+      "type": "object",
+      "required": [
+        "chain",
+        "root"
+      ],
+      "properties": {
+        "chain": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WhyStep"
+          }
+        },
+        "root": {
+          "$ref": "#/definitions/AtlasNode"
+        }
+      }
     },
     "WhyStep": {
       "type": "object",

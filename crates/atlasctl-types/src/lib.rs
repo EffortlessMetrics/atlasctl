@@ -348,7 +348,7 @@ impl Provenance {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasNode {
     pub id: AtlasId,
     pub kind: NodeKind,
@@ -656,17 +656,34 @@ pub struct WhyRequest {
     pub subject: WhySubject,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WhyStep {
     pub node: AtlasNode,
     pub relationship: EdgeKind,
     pub direction: TraceDirection,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WhyResponse {
     pub root: AtlasNode,
     pub chain: Vec<WhyStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WhyEnvelope {
+    pub schema_version: u32,
+    pub command: String,
+    pub payload: WhyResponse,
+}
+
+impl WhyEnvelope {
+    pub fn for_command(command: &str, payload: WhyResponse) -> Self {
+        Self {
+            schema_version: ATLAS_SCHEMA_VERSION,
+            command: command.to_string(),
+            payload,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -681,7 +698,7 @@ pub struct ImpactRequest {
     pub owners: std::collections::BTreeMap<RepoRelativePath, Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImpactHit {
     pub node: AtlasNode,
     pub reason: String,
@@ -689,10 +706,27 @@ pub struct ImpactHit {
     pub owners: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImpactResponse {
     pub impacted: Vec<ImpactHit>,
     pub uncovered: Vec<ChangedPath>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ImpactEnvelope {
+    pub schema_version: u32,
+    pub command: String,
+    pub payload: ImpactResponse,
+}
+
+impl ImpactEnvelope {
+    pub fn for_command(command: &str, payload: ImpactResponse) -> Self {
+        Self {
+            schema_version: ATLAS_SCHEMA_VERSION,
+            command: command.to_string(),
+            payload,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
