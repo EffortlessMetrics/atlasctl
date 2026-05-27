@@ -59,6 +59,12 @@ impl DiscoveryPort for FsDiscovery {
                     nodes.extend(parsed.nodes);
                     edges.extend(parsed.edges);
                 }
+                FileKind::PolicyToml => {
+                    let parsed = parse_policy_file(&repo_root, &rel_path);
+                    diagnostics.extend(parsed.diagnostics);
+                    nodes.extend(parsed.nodes);
+                    edges.extend(parsed.edges);
+                }
                 FileKind::Markdown => {
                     let parsed = parse_markdown_file(&repo_root, &rel_path);
                     diagnostics.extend(parsed.diagnostics);
@@ -353,6 +359,7 @@ fn is_ignored(path: &Utf8Path, ignored: &[String]) -> bool {
 enum FileKind {
     Fragment,
     Markdown,
+    PolicyToml,
     Other,
 }
 
@@ -360,6 +367,8 @@ fn classify_path(path: &Utf8Path) -> FileKind {
     let name = path.file_name().unwrap_or_default();
     if name.ends_with(".atlas.yaml") || name.ends_with(".atlas.yml") {
         FileKind::Fragment
+    } else if name.ends_with(".toml") && path.parent() == Some(Utf8Path::new("policy")) {
+        FileKind::PolicyToml
     } else if name.ends_with(".md") {
         FileKind::Markdown
     } else {
@@ -456,6 +465,122 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
             None,
             Some(location(rel_path)),
         ));
+    }
+
+    batch
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyFrontmatterEnvelope {
+    atlas: Option<PolicyFrontmatter>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PolicyFrontmatter {
+    id: Option<String>,
+    kind: Option<String>,
+    title: Option<String>,
+    summary: Option<String>,
+    #[serde(default)]
+    governs: Vec<String>,
+    #[serde(default)]
+    proves: Vec<String>,
+    #[serde(default)]
+    surfaces: Vec<String>,
+}
+
+fn parse_policy_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
+    let abs = repo_root.join(rel_path);
+    let mut batch = DiscoveryBatch::default();
+
+    let contents = match fs::read_to_string(&abs) {
+        Ok(contents) => contents,
+        Err(err) => {
+            batch.diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::DiscoveryFailure,
+                format!("failed to read `{}`: {err}", rel_path),
+                None,
+                Some(location(rel_path)),
+            ));
+            return batch;
+        }
+    };
+
+    let envelope = match toml::from_str::<PolicyFrontmatterEnvelope>(&contents) {
+        Ok(envelope) => envelope,
+        Err(err) => {
+            batch.diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::MalformedFragment,
+                format!("failed to parse policy file `{}`: {err}", rel_path),
+                None,
+                Some(location(rel_path)),
+            ));
+            return batch;
+        }
+    };
+
+    let Some(raw) = envelope.atlas else {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!("policy file `{}` is missing `atlas` section", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
+        return batch;
+    };
+
+    let Some(id) = raw.id else {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!("policy file `{}` is missing `atlas.id`", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
+        return batch;
+    };
+
+    let Some(kind) = raw.kind else {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!("policy file `{}` is missing `atlas.kind`", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
+        return batch;
+    };
+
+    let mut attrs = BTreeMap::new();
+    if !raw.surfaces.is_empty() {
+        attrs.insert(
+            "surfaces".to_string(),
+            Value::Array(raw.surfaces.into_iter().map(Value::String).collect()),
+        );
+    }
+
+    let node = RawNode {
+        id: id.clone(),
+        kind,
+        title: raw.title.unwrap_or_else(|| id.clone()),
+        summary: raw.summary,
+        paths: Vec::new(),
+        owns: vec![rel_path.as_str().to_string()],
+        touches: Vec::new(),
+        attrs,
+    };
+
+    match parse_node(node, rel_path, Some(id.clone())) {
+        Ok(node) => batch.nodes.push(node),
+        Err(diagnostic) => {
+            batch.diagnostics.push(diagnostic);
+            return batch;
+        }
+    };
+
+    for target in raw.governs {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Governs, &target, rel_path);
+    }
+    for target in raw.proves {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Proves, &target, rel_path);
     }
 
     batch
@@ -1051,6 +1176,68 @@ mod tests {
             classify_path(Utf8Path::new("docs/architecture.md")),
             FileKind::Markdown
         ));
+        assert!(matches!(
+            classify_path(Utf8Path::new("policy/release-review.toml")),
+            FileKind::PolicyToml
+        ));
+    }
+
+    #[test]
+    fn parses_policy_toml_file() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy")).unwrap();
+
+        let policy = r#"
+[atlas]
+id = "policy_ledger:release-review-guardrails"
+kind = "policy_ledger"
+title = "Release Review Guardrails"
+summary = "Defines review checks for generated artifacts."
+surfaces = ["docs/**/*.md", ".github/workflows/*.yml"]
+governs = ["policy_ledger:review-policy-guidance"]
+proves = ["cmd:policy-audit"]
+"#;
+
+        let policy_path = root.join("policy/release-review.toml");
+        std::fs::write(&policy_path, policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_policy_file(&repo_root, Utf8Path::new("policy/release-review.toml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected policy file to parse cleanly"
+        );
+        assert_eq!(batch.nodes.len(), 1, "expected one policy node");
+        assert_eq!(batch.edges.len(), 2, "expected governs and proves edges");
+
+        let node = &batch.nodes[0];
+        assert_eq!(node.id.as_str(), "policy_ledger:release-review-guardrails");
+        assert_eq!(node.kind, NodeKind::PolicyLedger);
+        assert!(
+            node.attrs.contains_key("surfaces"),
+            "surfaces should be preserved as node attrs"
+        );
+
+        let governs = batch.edges.iter().any(|edge| {
+            edge.kind == EdgeKind::Governs
+                && edge.to.as_str() == "policy_ledger:review-policy-guidance"
+        });
+        let proves = batch
+            .edges
+            .iter()
+            .any(|edge| edge.kind == EdgeKind::Proves && edge.to.as_str() == "cmd:policy-audit");
+
+        assert!(governs, "expected governs edge");
+        assert!(proves, "expected proves edge");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
