@@ -584,6 +584,9 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
     let mut uncovered = Vec::new();
     let mut impacted_ids = BTreeSet::<AtlasId>::new();
+    let mut changed_paths = request.paths.clone();
+    changed_paths.sort_by(|left, right| left.path.cmp(&right.path));
+    changed_paths.dedup_by(|left, right| left.path == right.path);
 
     for changed in &request.paths {
         let mut found_any = false;
@@ -626,6 +629,8 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             uncovered.push(changed.clone());
         }
     }
+    uncovered.sort_by(|left, right| left.path.cmp(&right.path));
+    uncovered.dedup_by(|left, right| left.path == right.path);
 
     // Graph expansion: 1 step from direct hits
     let direct_hits: Vec<_> = impacted.keys().cloned().collect();
@@ -751,7 +756,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     ImpactResponse {
         impacted: impacted_list,
         uncovered,
-        changed_paths: request.paths.clone(),
+        changed_paths,
         missing_evidence,
         scope_warnings,
         suggested_fixes,
@@ -2375,6 +2380,56 @@ mod tests {
         assert!(response.scope_warnings.iter().any(|warning| {
             warning.contains("documentation-only paths affect non-document surfaces")
         }));
+    }
+
+    #[test]
+    fn impacted_analysis_orders_and_dedups_paths_stably() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: "zeta/path.txt".into(),
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+
+        let response = impacted_graph(&graph, &request);
+
+        assert_eq!(
+            response
+                .changed_paths
+                .iter()
+                .map(|path| path.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha/path.txt", "zeta/path.txt"]
+        );
+        assert_eq!(
+            response
+                .uncovered
+                .iter()
+                .map(|path| path.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha/path.txt", "zeta/path.txt"]
+        );
     }
 
     /// SCENARIO: Querying the atlas with different search terms
