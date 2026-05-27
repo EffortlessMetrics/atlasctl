@@ -125,7 +125,7 @@ edges:
 
   - from: scen:full-release-verification
     kind: exercises
-    to: crate:atlasctl-ports
+    to: crate:atlasctl-app
 
   - from: scen:full-release-verification
     kind: exercises

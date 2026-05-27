@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::DiagnosticCode;
-use atlasctl_ports::{
+use atlasctl_app::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
 };
+use atlasctl_codes::DiagnosticCode;
 use atlasctl_types::{
     AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, EdgeKind,
     NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
@@ -19,6 +19,18 @@ use walkdir::WalkDir;
 
 #[derive(Debug, Default)]
 pub struct FsDiscovery;
+
+pub fn discover_repo(
+    repo_root: Utf8PathBuf,
+    config_path: Option<Utf8PathBuf>,
+) -> Result<DiscoveredRepo, DiscoveryError> {
+    let request = DiscoverRequest {
+        repo_root,
+        config_path,
+    };
+
+    FsDiscovery.discover(&request)
+}
 
 impl DiscoveryPort for FsDiscovery {
     fn discover(&self, request: &DiscoverRequest) -> Result<DiscoveredRepo, DiscoveryError> {
