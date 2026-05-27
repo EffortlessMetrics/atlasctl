@@ -7,7 +7,6 @@ authors.workspace = true
 
 [dependencies]
 atlasctl-app = { path = "../atlasctl-app" }
-atlasctl-ports = { path = "../atlasctl-ports" }
 atlasctl-discover-fs = { path = "../atlasctl-discover-fs" }
 atlasctl-render = { path = "../atlasctl-render" }
 atlasctl-types = { path = "../atlasctl-types" }

@@ -13,7 +13,7 @@ This repository is shaped for delegation.
 ## Where to make changes
 
 - Graph semantics: `crates/atlasctl-core`
-- IDs, node kinds, edge kinds, config, diagnostics: `crates/atlasctl-types` and `crates/atlasctl-codes`
+- IDs, node kinds, edge kinds, config, diagnostics: `crates/atlasctl-types` (formerly `atlasctl-codes`)
 - Filesystem scanning and parsing: `crates/atlasctl-discover-fs`
 - Rendering: `crates/atlasctl-render`
 - CLI behavior: `crates/atlasctl-cli`

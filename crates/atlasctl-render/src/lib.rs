@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_ports::{RenderError, RenderPort};
+use atlasctl_app::{RenderError, RenderPort};
 use atlasctl_types::{
     AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactEnvelope, ImpactResponse, NodeKind,
     RenderFormat, WhyEnvelope, WhyResponse,

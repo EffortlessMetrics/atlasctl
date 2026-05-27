@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
+use atlasctl_app::RenderPort;
 use atlasctl_app::{
     AtlasService, BuildOptions, CheckOutcome, CompileOptions, ImpactOptions, ImpactSource,
     QueryOptions, TraceOptions, WhyOptions,
 };
 use atlasctl_discover_fs::{Codeowners, FsDiscovery, GitDiff};
-use atlasctl_ports::RenderPort;
 use atlasctl_render::AtlasRenderer;
 use atlasctl_types::{
     AtlasId, ChangedPath, ExitCode, NodeKind, QueryRequest, RenderFormat, RepoRelativePath,

@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_ports::{
+use atlasctl_app::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
 };
 use atlasctl_types::{
