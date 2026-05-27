@@ -410,7 +410,10 @@ struct RawNode {
 #[derive(Debug, Deserialize)]
 struct RawEdge {
     from: String,
-    kind: String,
+    #[serde(default)]
+    relation: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
     to: String,
 }
 
@@ -880,7 +883,35 @@ fn parse_edge(
         )
     })?;
 
-    let kind = raw.kind.parse::<EdgeKind>().map_err(|invalid| {
+    let relation = raw.relation.clone().or_else(|| raw.kind.clone());
+
+    if raw.relation.is_some() && raw.kind.is_some() && raw.relation != raw.kind {
+        return Err(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!(
+                "edge in `{}` has conflicting `relation` `{}` and `kind` `{}`",
+                rel_path,
+                raw.relation.unwrap_or_default(),
+                raw.kind.unwrap_or_default()
+            ),
+            Some(from.clone()),
+            Some(location(rel_path)),
+        ));
+    }
+
+    let relation = relation.ok_or_else(|| {
+        AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!(
+                "edge in `{}` is missing `relation` (or legacy `kind`)",
+                rel_path
+            ),
+            Some(from.clone()),
+            Some(location(rel_path)),
+        )
+    })?;
+
+    let kind = relation.parse::<EdgeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownEdgeKind,
             format!("unknown edge kind `{invalid}` in `{}`", rel_path),
@@ -1165,6 +1196,214 @@ mod tests {
         let (frontmatter, body) = extract_frontmatter(input).expect("frontmatter");
         assert!(frontmatter.contains("guide:test"));
         assert!(body.contains("# Heading"));
+    }
+
+    #[test]
+    fn parses_fragment_edges_with_relation_only() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-rel-only-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    relation: proves
+"#;
+        let fragment_path = root.join("atlas/relations.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(&repo_root, Utf8Path::new("atlas/relations.atlas.yaml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected relation-only edge to parse"
+        );
+        assert_eq!(batch.edges.len(), 1);
+        assert_eq!(batch.edges[0].kind, EdgeKind::Proves);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_fragment_edges_with_legacy_kind_only() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-kind-only-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    kind: proves
+"#;
+        let fragment_path = root.join("atlas/legacy-kind.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(&repo_root, Utf8Path::new("atlas/legacy-kind.atlas.yaml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected legacy kind-only edge to parse"
+        );
+        assert_eq!(batch.edges.len(), 1);
+        assert_eq!(batch.edges[0].kind, EdgeKind::Proves);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_fragment_edges_with_relation_and_same_kind() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-relation-same-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    relation: proves
+    kind: proves
+"#;
+        let fragment_path = root.join("atlas/relation-same.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch =
+            parse_fragment_file(&repo_root, Utf8Path::new("atlas/relation-same.atlas.yaml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected matching relation and kind to parse"
+        );
+        assert_eq!(batch.edges.len(), 1);
+        assert_eq!(batch.edges[0].kind, EdgeKind::Proves);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_fragment_edges_with_conflicting_relation_and_kind() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-conflict-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    relation: proves
+    kind: runs_with
+"#;
+        let fragment_path = root.join("atlas/relation-conflict.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(
+            &repo_root,
+            Utf8Path::new("atlas/relation-conflict.atlas.yaml"),
+        );
+
+        assert_eq!(batch.edges.len(), 0);
+        assert_eq!(batch.diagnostics.len(), 1);
+        assert_eq!(
+            batch.diagnostics[0].code,
+            atlasctl_codes::DiagnosticCode::MalformedFragment
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_fragment_edges_with_missing_relation_and_kind() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-missing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+"#;
+        let fragment_path = root.join("atlas/relation-missing.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(
+            &repo_root,
+            Utf8Path::new("atlas/relation-missing.atlas.yaml"),
+        );
+
+        assert_eq!(batch.edges.len(), 0);
+        assert_eq!(batch.diagnostics.len(), 1);
+        assert_eq!(
+            batch.diagnostics[0].code,
+            atlasctl_codes::DiagnosticCode::MalformedFragment
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
