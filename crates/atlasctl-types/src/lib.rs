@@ -441,7 +441,7 @@ pub struct AtlasEdge {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasDiagnostic {
     pub code: DiagnosticCode,
     pub severity: Severity,
@@ -788,6 +788,14 @@ pub struct ImpactHit {
 pub struct ImpactResponse {
     pub impacted: Vec<ImpactHit>,
     pub uncovered: Vec<ChangedPath>,
+    #[serde(default)]
+    pub changed_paths: Vec<ChangedPath>,
+    #[serde(default)]
+    pub missing_evidence: Vec<AtlasDiagnostic>,
+    #[serde(default)]
+    pub scope_warnings: Vec<String>,
+    #[serde(default)]
+    pub suggested_fixes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

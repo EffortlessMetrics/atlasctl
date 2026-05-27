@@ -21,6 +21,41 @@
     }
   },
   "definitions": {
+    "AtlasDiagnostic": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "severity"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/DiagnosticCode"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SourceLocation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/definitions/Severity"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "AtlasNode": {
       "type": "object",
       "required": [
@@ -84,6 +119,39 @@
         }
       }
     },
+    "DiagnosticCode": {
+      "type": "string",
+      "enum": [
+        "duplicate_id",
+        "broken_reference",
+        "malformed_fragment",
+        "invalid_id",
+        "invalid_edge_endpoint",
+        "invalid_path",
+        "unknown_node_kind",
+        "unknown_edge_kind",
+        "scenario_missing_command",
+        "scenario_missing_crate",
+        "artifact_missing_producer",
+        "command_referenced_but_undeclared",
+        "invalid_config",
+        "discovery_failure",
+        "query_root_missing",
+        "dead_selector",
+        "orphan_node",
+        "stale_command",
+        "broken_doc_link",
+        "duplicate_ownership",
+        "empty_fragment",
+        "requirement_not_proven",
+        "uncovered_crate",
+        "active_goal_missing_plan",
+        "active_goal_missing_ready_work_items",
+        "active_goal_work_item_missing_proof",
+        "claim_missing_proof_command",
+        "policy_ledger_missing_proof_command"
+      ]
+    },
     "ImpactHit": {
       "type": "object",
       "required": [
@@ -113,10 +181,38 @@
         "uncovered"
       ],
       "properties": {
+        "changed_paths": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChangedPath"
+          }
+        },
         "impacted": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/ImpactHit"
+          }
+        },
+        "missing_evidence": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AtlasDiagnostic"
+          }
+        },
+        "scope_warnings": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "suggested_fixes": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         },
         "uncovered": {
@@ -201,6 +297,41 @@
           "minimum": 0.0
         },
         "source": {
+          "type": "string"
+        }
+      }
+    },
+    "Severity": {
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
+    },
+    "SourceLocation": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "column": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "path": {
           "type": "string"
         }
       }

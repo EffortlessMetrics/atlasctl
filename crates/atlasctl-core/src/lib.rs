@@ -584,6 +584,7 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
 pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResponse {
     let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
     let mut uncovered = Vec::new();
+    let mut impacted_ids = BTreeSet::<AtlasId>::new();
 
     for changed in &request.paths {
         let mut found_any = false;
@@ -617,6 +618,8 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                             entry.owners.push(o);
                         }
                     }
+
+                    impacted_ids.insert(node.id.clone());
                 }
             }
         }
@@ -650,6 +653,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                             entry.owners.push(o);
                         }
                     }
+                    impacted_ids.insert(to_node.id.clone());
                 }
             } else if edge.to == hit_id {
                 // Incoming
@@ -672,10 +676,75 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                             entry.owners.push(o);
                         }
                     }
+                    impacted_ids.insert(from_node.id.clone());
                 }
             }
         }
     }
+
+    let mut missing_evidence = graph
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .subject
+                .as_ref()
+                .is_some_and(|subject| impacted_ids.contains(subject))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    missing_evidence.sort_by(|left, right| {
+        left.code
+            .cmp(&right.code)
+            .then_with(|| left.subject.cmp(&right.subject))
+            .then_with(|| left.message.cmp(&right.message))
+    });
+
+    let mut scope_warnings = Vec::new();
+    if !uncovered.is_empty() {
+        scope_warnings.push(format!(
+            "`{}` changed paths are not covered by any known ownership/touches selector",
+            uncovered.len()
+        ));
+    }
+    if missing_evidence
+        .iter()
+        .any(|diagnostic| diagnostic.code == atlasctl_codes::DiagnosticCode::ActiveGoalMissingPlan)
+    {
+        scope_warnings.push(
+            "active-goal metadata is not complete; check `.codex/goals/active.toml`".to_string(),
+        );
+    }
+
+    let mut suggested_fixes = missing_evidence
+        .iter()
+        .filter_map(|diagnostic| match diagnostic.code {
+            atlasctl_codes::DiagnosticCode::RequirementNotProven => Some(
+                "add a scenario that proves this requirement and connects to a command".to_string(),
+            ),
+            atlasctl_codes::DiagnosticCode::ClaimMissingProofCommand => {
+                Some("link this claim node to a command via a `proves` edge".to_string())
+            }
+            atlasctl_codes::DiagnosticCode::PolicyLedgerMissingProofCommand => {
+                Some("link this policy ledger node to its enforcement command".to_string())
+            }
+            atlasctl_codes::DiagnosticCode::ScenarioMissingCommand => {
+                Some("add a `runs_with` edge from scenario to command".to_string())
+            }
+            atlasctl_codes::DiagnosticCode::ScenarioMissingCrate => {
+                Some("add an `exercises` edge from scenario to impacted crate".to_string())
+            }
+            atlasctl_codes::DiagnosticCode::ArtifactMissingProducer => {
+                Some("add an `emits` edge from scenario to artifact".to_string())
+            }
+            atlasctl_codes::DiagnosticCode::DuplicateOwnership => {
+                Some("remove one of the overlapping ownership declarations".to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    suggested_fixes.sort();
+    suggested_fixes.dedup();
 
     let mut impacted_list: Vec<_> = impacted.into_values().collect();
     impacted_list.sort_by(|a, b| a.node.id.cmp(&b.node.id));
@@ -683,6 +752,10 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     ImpactResponse {
         impacted: impacted_list,
         uncovered,
+        changed_paths: request.paths.clone(),
+        missing_evidence,
+        scope_warnings,
+        suggested_fixes,
     }
 }
 
@@ -706,7 +779,7 @@ fn validate_completeness(
 
     for node in nodes {
         let has_any_edge = outgoing.contains_key(&node.id) || incoming.contains_key(&node.id);
-        let claim_has_proof_command = outgoing.get(&node.id).is_some_and(|edges| {
+        let has_proof_command = outgoing.get(&node.id).is_some_and(|edges| {
             edges.iter().any(|edge| {
                 edge.kind == EdgeKind::Proves
                     && node_kinds
@@ -827,11 +900,24 @@ fn validate_completeness(
                 }
             }
             _ if node.kind == NodeKind::Claim => {
-                if !claim_has_proof_command {
+                if !has_proof_command {
                     diagnostics.push(AtlasDiagnostic::new(
                         DiagnosticCode::ClaimMissingProofCommand,
                         format!(
                             "claim `{}` is not linked to any command via a `proves` edge",
+                            node.id
+                        ),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
+                }
+            }
+            _ if node.kind == NodeKind::PolicyLedger => {
+                if !has_proof_command {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::PolicyLedgerMissingProofCommand,
+                        format!(
+                            "policy ledger `{}` is not linked to any command via a `proves` edge",
                             node.id
                         ),
                         Some(node.id.clone()),
@@ -895,8 +981,8 @@ mod tests {
     use super::*;
     use atlasctl_ports::DiscoveryPort;
     use atlasctl_types::{
-        ActiveGoalConfig, AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind,
-        PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
+        ActiveGoalConfig, AtlasConfig, AtlasEdge, AtlasId, AtlasNode, ChangedPath, DiscoveredRepo,
+        NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
     };
     use proptest::proptest;
     use std::collections::BTreeMap;
@@ -920,6 +1006,23 @@ mod tests {
             from: AtlasId::parse(from).expect("valid from"),
             kind,
             to: AtlasId::parse(to).expect("valid to"),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+        }
+    }
+
+    fn node_with_touches(id: &str, kind: NodeKind, touches: &[&str]) -> AtlasNode {
+        AtlasNode {
+            id: AtlasId::parse(id).expect("valid id"),
+            role: kind.role(),
+            kind,
+            title: id.to_string(),
+            summary: None,
+            owns: vec![],
+            touches: touches
+                .iter()
+                .map(|touch| PathSelector::new(*touch))
+                .collect(),
+            attrs: BTreeMap::new(),
             provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
         }
     }
@@ -1826,6 +1929,137 @@ mod tests {
                 .iter()
                 .any(|d| d.code == DiagnosticCode::ClaimMissingProofCommand),
             "claim with command proof should not emit proof warning"
+        );
+    }
+
+    #[test]
+    fn policy_ledger_without_proof_command_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("policy_ledger:ci-review", NodeKind::PolicyLedger),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+            ],
+            edges: vec![AtlasEdge {
+                from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                kind: EdgeKind::Governs,
+                to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::PolicyLedgerMissingProofCommand),
+            "policy ledger without proof command should emit a warning"
+        );
+    }
+
+    #[test]
+    fn policy_ledger_with_command_proof_is_supported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("policy_ledger:ci-review", NodeKind::PolicyLedger),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+                node("cmd:policy-audit", NodeKind::Command),
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                    kind: EdgeKind::Governs,
+                    to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("cmd:policy-audit").expect("valid command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            !graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::PolicyLedgerMissingProofCommand),
+            "policy ledger with command proves edge should not emit policy proof warning"
+        );
+    }
+
+    #[test]
+    fn policy_ledger_surface_change_impacts_governed_nodes() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![
+                    node_with_touches(
+                        "policy_ledger:ci-review",
+                        NodeKind::PolicyLedger,
+                        &["docs/**/*.md", ".github/workflows/*.yml"],
+                    ),
+                    node("support_tier:docs-support", NodeKind::SupportTier),
+                    node("cmd:policy-audit", NodeKind::Command),
+                ],
+                edges: vec![
+                    AtlasEdge {
+                        from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                        kind: EdgeKind::Governs,
+                        to: AtlasId::parse("support_tier:docs-support").expect("valid support id"),
+                        provenance: Provenance::new(RepoRelativePath::new(
+                            "atlas/example.atlas.yaml",
+                        )),
+                    },
+                    AtlasEdge {
+                        from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                        kind: EdgeKind::Proves,
+                        to: AtlasId::parse("cmd:policy-audit").expect("valid command id"),
+                        provenance: Provenance::new(RepoRelativePath::new(
+                            "atlas/example.atlas.yaml",
+                        )),
+                    },
+                ],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/guides/onboarding.md".into(),
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|h| h.node.id.as_str() == "policy_ledger:ci-review")
+        );
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|h| h.node.id.as_str() == "support_tier:docs-support")
         );
     }
 

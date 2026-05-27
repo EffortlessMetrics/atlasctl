@@ -694,7 +694,8 @@ fn test_impacted_review_packet() {
         .assert()
         .success()
         .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
-        .stdout(predicate::str::contains("## 🎯 Impacted Proof Surface"));
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"));
 }
 
 // ============================================================================

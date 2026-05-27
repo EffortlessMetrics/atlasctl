@@ -550,10 +550,11 @@ fn parse_policy_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatc
     };
 
     let mut attrs = BTreeMap::new();
-    if !raw.surfaces.is_empty() {
+    let surfaces = raw.surfaces.clone();
+    if !surfaces.is_empty() {
         attrs.insert(
             "surfaces".to_string(),
-            Value::Array(raw.surfaces.into_iter().map(Value::String).collect()),
+            Value::Array(surfaces.iter().cloned().map(Value::String).collect()),
         );
     }
 
@@ -564,7 +565,7 @@ fn parse_policy_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatc
         summary: raw.summary,
         paths: Vec::new(),
         owns: vec![rel_path.as_str().to_string()],
-        touches: Vec::new(),
+        touches: surfaces,
         attrs,
     };
 
@@ -1223,6 +1224,18 @@ proves = ["cmd:policy-audit"]
         assert!(
             node.attrs.contains_key("surfaces"),
             "surfaces should be preserved as node attrs"
+        );
+        assert!(
+            node.touches
+                .iter()
+                .any(|pattern| pattern.pattern == "docs/**/*.md"),
+            "surface should become a touches selector"
+        );
+        assert!(
+            node.touches
+                .iter()
+                .any(|pattern| pattern.pattern == ".github/workflows/*.yml"),
+            "surface should become a touches selector"
         );
 
         let governs = batch.edges.iter().any(|edge| {

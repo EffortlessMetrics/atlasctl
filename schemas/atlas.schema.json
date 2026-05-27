@@ -222,7 +222,8 @@
         "active_goal_missing_plan",
         "active_goal_missing_ready_work_items",
         "active_goal_work_item_missing_proof",
-        "claim_missing_proof_command"
+        "claim_missing_proof_command",
+        "policy_ledger_missing_proof_command"
       ]
     },
     "EdgeKind": {
