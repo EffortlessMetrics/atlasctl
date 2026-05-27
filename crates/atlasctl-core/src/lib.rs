@@ -4,7 +4,7 @@ use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode,
     DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind, NodeMatch,
-    ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection, TraceEdge,
+    NodeRole, ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection, TraceEdge,
     TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -486,8 +486,8 @@ fn validate_completeness(
 
         // Infra nodes like crates and operational commands are allowed to be loosely coupled
         if !has_any_edge
-            && node.kind.role() != atlasctl_types::NodeRole::Infra
-            && node.kind != NodeKind::Command
+            && node.role != NodeRole::Infra
+            && node.role != NodeRole::Command
         {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::OrphanNode,
@@ -497,8 +497,8 @@ fn validate_completeness(
             ));
         }
 
-        match node.kind {
-            NodeKind::Command => {
+        match node.role {
+            NodeRole::Command => {
                 let is_used = incoming
                     .get(&node.id)
                     .map(|edges| edges.iter().any(|edge| edge.kind == EdgeKind::RunsWith))
@@ -513,7 +513,7 @@ fn validate_completeness(
                     ));
                 }
             }
-            NodeKind::Scenario => {
+            NodeRole::Proof => {
                 if settings.require_scenario_command {
                     let has_command = outgoing
                         .get(&node.id)
@@ -546,7 +546,7 @@ fn validate_completeness(
                     }
                 }
             }
-            NodeKind::Artifact => {
+            NodeRole::Artifact => {
                 if settings.require_artifact_producer {
                     let has_producer = incoming
                         .get(&node.id)
@@ -563,7 +563,7 @@ fn validate_completeness(
                     }
                 }
             }
-            NodeKind::Requirement => {
+            NodeRole::Behavior => {
                 if settings.require_requirement_proof {
                     let is_proven = incoming
                         .get(&node.id)
@@ -580,7 +580,7 @@ fn validate_completeness(
                     }
                 }
             }
-            NodeKind::Crate => {
+            NodeRole::Infra => {
                 if settings.require_crate_scenario {
                     let is_exercised = incoming
                         .get(&node.id)
