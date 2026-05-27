@@ -1,12 +1,11 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::DiagnosticCode;
 use atlasctl_ports::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
 };
 use atlasctl_types::{
-    ActiveGoalConfig, AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo,
-    EdgeKind, NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
+    ActiveGoalConfig, AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiagnosticCode,
+    DiscoveredRepo, EdgeKind, NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::MetadataCommand;
@@ -1356,10 +1355,7 @@ edges:
 
         assert_eq!(batch.edges.len(), 0);
         assert_eq!(batch.diagnostics.len(), 1);
-        assert_eq!(
-            batch.diagnostics[0].code,
-            atlasctl_codes::DiagnosticCode::MalformedFragment
-        );
+        assert_eq!(batch.diagnostics[0].code, DiagnosticCode::MalformedFragment);
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1398,10 +1394,7 @@ edges:
 
         assert_eq!(batch.edges.len(), 0);
         assert_eq!(batch.diagnostics.len(), 1);
-        assert_eq!(
-            batch.diagnostics[0].code,
-            atlasctl_codes::DiagnosticCode::MalformedFragment
-        );
+        assert_eq!(batch.diagnostics[0].code, DiagnosticCode::MalformedFragment);
 
         let _ = std::fs::remove_dir_all(root);
     }

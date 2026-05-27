@@ -6,7 +6,6 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-atlasctl-codes = { path = "../atlasctl-codes" }
 atlasctl-core = { path = "../atlasctl-core" }
 atlasctl-ports = { path = "../atlasctl-ports" }
 atlasctl-types = { path = "../atlasctl-types" }

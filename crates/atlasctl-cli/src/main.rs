@@ -4,13 +4,12 @@ use atlasctl_app::{
     AtlasService, BuildOptions, CheckOutcome, CompileOptions, ImpactOptions, ImpactSource,
     QueryOptions, TraceOptions, WhyOptions,
 };
-use atlasctl_codes::ExitCode;
 use atlasctl_discover_fs::{Codeowners, FsDiscovery, GitDiff};
 use atlasctl_ports::RenderPort;
 use atlasctl_render::AtlasRenderer;
 use atlasctl_types::{
-    AtlasId, ChangedPath, NodeKind, QueryRequest, RenderFormat, RepoRelativePath, TraceDirection,
-    TraceRequest, ValidationProfile, WhyRequest, WhySubject,
+    AtlasId, ChangedPath, ExitCode, NodeKind, QueryRequest, RenderFormat, RepoRelativePath,
+    TraceDirection, TraceRequest, ValidationProfile, WhyRequest, WhySubject,
 };
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};

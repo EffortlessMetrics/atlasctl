@@ -1,12 +1,11 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId,
-    AtlasMetrics, AtlasNode, DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse,
-    NodeKind, NodeMatch, NodeRole, ProfileSettings, QueryRequest, QueryResponse, SourceLocation,
-    TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest,
-    WhyResponse, WhyStep, WhySubject,
+    AtlasMetrics, AtlasNode, DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest,
+    ImpactResponse, NodeKind, NodeMatch, NodeRole, ProfileSettings, QueryRequest, QueryResponse,
+    Severity, SourceLocation, TraceDirection, TraceEdge, TraceRequest, TraceResponse,
+    ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -709,7 +708,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     }
     if missing_evidence
         .iter()
-        .any(|diagnostic| diagnostic.code == atlasctl_codes::DiagnosticCode::ActiveGoalMissingPlan)
+        .any(|diagnostic| diagnostic.code == DiagnosticCode::ActiveGoalMissingPlan)
     {
         scope_warnings.push(
             "active-goal metadata is not complete; check `.codex/goals/active.toml`".to_string(),
@@ -719,25 +718,25 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     let mut suggested_fixes = missing_evidence
         .iter()
         .filter_map(|diagnostic| match diagnostic.code {
-            atlasctl_codes::DiagnosticCode::RequirementNotProven => Some(
+            DiagnosticCode::RequirementNotProven => Some(
                 "add a scenario that proves this requirement and connects to a command".to_string(),
             ),
-            atlasctl_codes::DiagnosticCode::ClaimMissingProofCommand => {
+            DiagnosticCode::ClaimMissingProofCommand => {
                 Some("link this claim node to a command via a `proves` edge".to_string())
             }
-            atlasctl_codes::DiagnosticCode::PolicyLedgerMissingProofCommand => {
+            DiagnosticCode::PolicyLedgerMissingProofCommand => {
                 Some("link this policy ledger node to its enforcement command".to_string())
             }
-            atlasctl_codes::DiagnosticCode::ScenarioMissingCommand => {
+            DiagnosticCode::ScenarioMissingCommand => {
                 Some("add a `runs_with` edge from scenario to command".to_string())
             }
-            atlasctl_codes::DiagnosticCode::ScenarioMissingCrate => {
+            DiagnosticCode::ScenarioMissingCrate => {
                 Some("add an `exercises` edge from scenario to impacted crate".to_string())
             }
-            atlasctl_codes::DiagnosticCode::ArtifactMissingProducer => {
+            DiagnosticCode::ArtifactMissingProducer => {
                 Some("add an `emits` edge from scenario to artifact".to_string())
             }
-            atlasctl_codes::DiagnosticCode::DuplicateOwnership => {
+            DiagnosticCode::DuplicateOwnership => {
                 Some("remove one of the overlapping ownership declarations".to_string())
             }
             _ => None,
@@ -1835,7 +1834,7 @@ mod tests {
             graph
                 .diagnostics
                 .iter()
-                .all(|diag| diag.severity != atlasctl_codes::Severity::Error)
+                .all(|diag| diag.severity != Severity::Error)
         );
     }
 
