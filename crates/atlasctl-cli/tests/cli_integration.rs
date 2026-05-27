@@ -993,6 +993,56 @@ fn test_scaffold_artifact() {
     assert!(content.contains("id: artifact:new-artifact"));
 }
 
+#[test]
+fn test_scaffold_plan_item() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "plan-item",
+            "release-plan",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded plan item"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-plan.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: plan"));
+}
+
+#[test]
+fn test_scaffold_gap() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "requirement_not_proven",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded gap scaffold"));
+
+    let scaffold_file = temp_dir
+        .path()
+        .join("atlas/gap-requirement_not_proven.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: scenario"));
+    assert!(content.contains("proves"));
+    assert!(content.contains("req:todo"));
+}
+
 // ============================================================================
 // ERROR HANDLING TESTS
 // ============================================================================

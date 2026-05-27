@@ -53,6 +53,11 @@ enum ScaffoldKind {
     Scenario,
     Artifact,
     Requirement,
+    PlanItem,
+    SupportTier,
+    PolicyLedger,
+    Closeout,
+    Gap,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -295,26 +300,48 @@ warnings_as_errors = true
                     .map_err(|err| format!("failed to create `atlas/` directory: {err}"))?;
             }
 
-            let id = if args.id.contains(':') {
+            let is_gap_scaffold = matches!(args.kind, ScaffoldKind::Gap);
+            let gap_diagnostic = if is_gap_scaffold {
+                Some(args.id.clone())
+            } else {
+                None
+            };
+
+            let id = if is_gap_scaffold {
+                format!("scen:gap-{}", normalize_slug(&args.id))
+            } else if args.id.contains(':') {
                 args.id.clone()
             } else {
                 let prefix = match args.kind {
                     ScaffoldKind::Scenario => "scen",
                     ScaffoldKind::Artifact => "artifact",
                     ScaffoldKind::Requirement => "req",
+                    ScaffoldKind::PlanItem => "plan",
+                    ScaffoldKind::SupportTier => "support_tier",
+                    ScaffoldKind::PolicyLedger => "policy_ledger",
+                    ScaffoldKind::Closeout => "closeout",
+                    ScaffoldKind::Gap => "scen",
                 };
                 format!("{}:{}", prefix, args.id)
             };
 
-            let file_name = format!("{}.atlas.yaml", args.id.replace(':', "-"));
+            let file_name = match args.kind {
+                ScaffoldKind::Gap => {
+                    format!("gap-{}.atlas.yaml", normalize_slug(&args.id))
+                }
+                _ => format!("{}.atlas.yaml", args.id.replace(':', "-")),
+            };
             let scaffold_path = atlas_dir.join(file_name);
             if scaffold_path.exists() {
                 return Err(format!("`{scaffold_path}` already exists"));
             }
 
-            let content = match args.kind {
-                ScaffoldKind::Scenario => format!(
-                    r#"nodes:
+            let content = if is_gap_scaffold {
+                scaffold_content_for_gap(gap_diagnostic.as_deref().unwrap_or_default())
+            } else {
+                match args.kind {
+                    ScaffoldKind::Scenario => format!(
+                        r#"nodes:
   - id: {id}
     kind: scenario
     title: {id}
@@ -330,30 +357,74 @@ edges:
     kind: runs_with
     to: cmd:TODO
 "#
-                ),
-                ScaffoldKind::Artifact => format!(
-                    r#"nodes:
+                    ),
+                    ScaffoldKind::Artifact => format!(
+                        r#"nodes:
   - id: {id}
     kind: artifact
     title: {id}
     summary: |
       Enter artifact summary here.
-"#
-                ),
-                ScaffoldKind::Requirement => format!(
-                    r#"nodes:
+                    "#
+                    ),
+                    ScaffoldKind::Requirement => format!(
+                        r#"nodes:
   - id: {id}
     kind: requirement
     title: {id}
     summary: |
       Enter requirement summary here.
-"#
-                ),
+                        "#
+                    ),
+                    ScaffoldKind::PlanItem => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: plan
+    title: {id}
+    summary: |
+      Enter plan summary here.
+                        "#
+                    ),
+                    ScaffoldKind::SupportTier => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: support_tier
+    title: {id}
+    summary: |
+      Enter support-tier summary here.
+                        "#
+                    ),
+                    ScaffoldKind::PolicyLedger => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: policy_ledger
+    title: {id}
+    summary: |
+      Enter policy-ledger summary here.
+                        "#
+                    ),
+                    ScaffoldKind::Closeout => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: closeout
+    title: {id}
+    summary: |
+      Enter closeout summary here.
+                        "#
+                    ),
+                    ScaffoldKind::Gap => unreachable!(),
+                }
             };
+
             let kind_name = match args.kind {
                 ScaffoldKind::Scenario => "scenario",
                 ScaffoldKind::Artifact => "artifact",
                 ScaffoldKind::Requirement => "requirement",
+                ScaffoldKind::PlanItem => "plan item",
+                ScaffoldKind::SupportTier => "support-tier",
+                ScaffoldKind::PolicyLedger => "policy-ledger",
+                ScaffoldKind::Closeout => "closeout",
+                ScaffoldKind::Gap => "gap scaffold",
             };
 
             fs::write(&scaffold_path, content)
@@ -871,5 +942,72 @@ fn print_why(outcome: &atlasctl_app::WhyOutcome) {
                 direction, step.relationship, step.node.id, step.node.kind
             );
         }
+    }
+}
+
+fn scaffold_content_for_gap(diagnostic: &str) -> String {
+    let normalized = normalize_slug(diagnostic);
+    let id = format!("scen:gap-{normalized}");
+    let target = scaffold_gap_target(diagnostic);
+
+    format!(
+        r#"nodes:
+  - id: {id}
+    kind: scenario
+    title: Fill gap from {diagnostic}
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "docs/**/*.md"
+    owns:
+      - "TODO/path"
+edges:
+  - from: {id}
+    kind: proves
+    to: {target}
+  - from: {id}
+    kind: runs_with
+    to: cmd:todo
+"#
+    )
+}
+
+fn scaffold_gap_target(diagnostic: &str) -> &'static str {
+    match diagnostic {
+        "requirement_not_proven" => "req:todo",
+        "artifact_missing_producer" => "artifact:todo",
+        "active_goal_missing_plan" => "plan:todo",
+        "active_goal_work_item_missing_proof" => "scen:todo",
+        "claim_missing_proof_command" => "support_tier:todo",
+        "policy_ledger_missing_proof_command" => "policy_ledger:todo",
+        "scenario_missing_command" => "scen:todo",
+        "scenario_missing_crate" => "crate:todo",
+        "uncovered_crate" => "crate:todo",
+        _ => "req:todo",
+    }
+}
+
+fn normalize_slug(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut prev_was_dash = false;
+
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            output.push(ch.to_ascii_lowercase());
+            prev_was_dash = false;
+        } else if !prev_was_dash {
+            output.push('-');
+            prev_was_dash = true;
+        }
+    }
+
+    while output.ends_with('-') {
+        output.pop();
+    }
+
+    if output.is_empty() {
+        "gap".to_string()
+    } else {
+        output
     }
 }
