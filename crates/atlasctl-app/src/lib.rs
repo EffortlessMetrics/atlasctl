@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::Severity;
 use atlasctl_core::{compile_atlas, impacted_graph, query_graph, trace_graph, why_graph};
 use atlasctl_ports::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
@@ -8,7 +7,8 @@ use atlasctl_ports::{
 };
 use atlasctl_types::{
     AtlasGraph, ChangedPath, ImpactRequest, ImpactResponse, QueryRequest, QueryResponse,
-    RenderFormat, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse,
+    RenderFormat, Severity, TraceRequest, TraceResponse, ValidationProfile, WhyRequest,
+    WhyResponse,
 };
 use camino::Utf8PathBuf;
 use std::collections::BTreeMap;

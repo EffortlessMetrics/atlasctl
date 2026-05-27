@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode,
-    DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind, NodeMatch,
-    ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection, TraceEdge,
-    TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
+    DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind,
+    NodeMatch, ProfileSettings, QueryRequest, QueryResponse, Severity, SourceLocation,
+    TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest,
+    WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 

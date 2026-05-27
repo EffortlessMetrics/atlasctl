@@ -1,12 +1,11 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::DiagnosticCode;
 use atlasctl_ports::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
 };
 use atlasctl_types::{
-    AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, EdgeKind,
-    NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
+    AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiagnosticCode, DiscoveredRepo,
+    EdgeKind, NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::MetadataCommand;
