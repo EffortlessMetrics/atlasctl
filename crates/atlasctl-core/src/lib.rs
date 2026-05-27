@@ -1800,6 +1800,7 @@ mod golden {
     use atlasctl_ports::{DiscoverRequest, DiscoveryPort, RenderPort};
     use atlasctl_render::AtlasRenderer;
     use atlasctl_types::{ChangedPath, RenderFormat, WhyRequest, WhySubject};
+    use serde_json::Value;
 
     const FIXTURES: &[&str] = &[
         "valid-minimal",
@@ -1864,6 +1865,40 @@ mod golden {
         // This is a simple heuristic but effective for regression
         assert!(!json.contains(":\\\\"), "Found Windows absolute path");
         assert!(!json.contains("\":/"), "Found POSIX absolute path");
+
+        let renderer = AtlasRenderer;
+        let why = {
+            let request = WhyRequest {
+                subject: WhySubject::Id(AtlasId::parse("scen:example-build").unwrap()),
+            };
+            render_why_json(&renderer, &graph, &request)
+        };
+        assert!(
+            !why.contains(":\\\\"),
+            "Found Windows absolute path in why.json"
+        );
+        assert!(
+            !why.contains("\":/"),
+            "Found POSIX absolute path in why.json"
+        );
+
+        let impact = {
+            let request = ImpactRequest {
+                paths: vec![ChangedPath {
+                    path: "crates/engine/src/lib.rs".into(),
+                }],
+                owners: BTreeMap::new(),
+            };
+            render_impact_json(&renderer, &graph, &request)
+        };
+        assert!(
+            !impact.contains(":\\\\"),
+            "Found Windows absolute path in impact.json"
+        );
+        assert!(
+            !impact.contains("\":/"),
+            "Found POSIX absolute path in impact.json"
+        );
     }
 
     #[test]
@@ -2005,6 +2040,17 @@ mod golden {
         insta::assert_snapshot!("golden/why.md", md);
 
         let json = renderer.render_why(&response, RenderFormat::Json).unwrap();
+        let json_value: Value =
+            serde_json::from_str(&json).expect("why output should be valid JSON envelope");
+        assert_eq!(
+            json_value.get("schema_version").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            json_value.get("command").and_then(Value::as_str),
+            Some("why")
+        );
+        assert!(json_value.get("payload").is_some());
         insta::assert_snapshot!("golden/why.json", json);
     }
 
@@ -2028,6 +2074,17 @@ mod golden {
         let json = renderer
             .render_impact(&response, RenderFormat::Json)
             .unwrap();
+        let json_value: Value =
+            serde_json::from_str(&json).expect("impact output should be valid JSON envelope");
+        assert_eq!(
+            json_value.get("schema_version").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            json_value.get("command").and_then(Value::as_str),
+            Some("impacted")
+        );
+        assert!(json_value.get("payload").is_some());
         insta::assert_snapshot!("golden/impact.json", json);
 
         let summary = renderer
@@ -2039,5 +2096,25 @@ mod golden {
             .render_impact(&response, RenderFormat::ReviewPacket)
             .unwrap();
         insta::assert_snapshot!("golden/impact-packet.md", packet);
+    }
+
+    fn render_why_json(
+        renderer: &AtlasRenderer,
+        graph: &AtlasGraph,
+        request: &WhyRequest,
+    ) -> String {
+        let response = why_graph(graph, request).expect("why response");
+        renderer.render_why(&response, RenderFormat::Json).unwrap()
+    }
+
+    fn render_impact_json(
+        renderer: &AtlasRenderer,
+        graph: &AtlasGraph,
+        request: &ImpactRequest,
+    ) -> String {
+        let response = impacted_graph(graph, request);
+        renderer
+            .render_impact(&response, RenderFormat::Json)
+            .unwrap()
     }
 }
