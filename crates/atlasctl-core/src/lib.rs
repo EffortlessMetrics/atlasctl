@@ -1886,6 +1886,18 @@ mod golden {
     }
 
     #[test]
+    fn portability_diagnostic_messages_are_normalized() {
+        let graph = build_atlas("doctor-drift");
+        for diagnostic in &graph.diagnostics {
+            assert!(
+                !diagnostic.message.contains('\\'),
+                "Diagnostic message contains backslash: {}",
+                diagnostic.message
+            );
+        }
+    }
+
+    #[test]
     fn scenario_impacted_by_path() {
         let graph = build_atlas("valid-minimal");
         let request = ImpactRequest {

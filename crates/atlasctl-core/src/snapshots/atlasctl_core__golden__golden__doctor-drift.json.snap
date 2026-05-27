@@ -189,7 +189,7 @@ expression: json_output
     {
       "code": "empty_fragment",
       "severity": "info",
-      "message": "fragment file `atlas\\empty.atlas.yaml` contains no atlas metadata",
+      "message": "fragment file `atlas/empty.atlas.yaml` contains no atlas metadata",
       "subject": null,
       "location": {
         "path": "atlas/empty.atlas.yaml",

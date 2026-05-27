@@ -67,5 +67,5 @@ expression: md_output
 - [warning] `stale_command` — command `cmd:stale` is not used by any scenario
   - Subject: `cmd:stale`
   - Location: `atlas/drift.atlas.yaml`
-- [info] `empty_fragment` — fragment file `atlas\empty.atlas.yaml` contains no atlas metadata
+- [info] `empty_fragment` — fragment file `atlas/empty.atlas.yaml` contains no atlas metadata
   - Location: `atlas/empty.atlas.yaml`

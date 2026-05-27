@@ -220,13 +220,14 @@ fn load_config(
 
     let rel =
         relative_path(repo_root, &config_path).unwrap_or_else(|| Utf8PathBuf::from("atlas.toml"));
+    let rel_display = normalized_path(&rel);
     match fs::read_to_string(&config_path) {
         Ok(contents) => match toml::from_str::<AtlasConfig>(&contents) {
             Ok(config) => (config, diagnostics),
             Err(err) => {
                 diagnostics.push(AtlasDiagnostic::new(
                     DiagnosticCode::InvalidConfig,
-                    format!("failed to parse `{}`: {err}", rel),
+                    format!("failed to parse `{}`: {err}", rel_display),
                     None,
                     Some(location(&rel)),
                 ));
@@ -236,7 +237,7 @@ fn load_config(
         Err(err) => {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::InvalidConfig,
-                format!("failed to read `{}`: {err}", rel),
+                format!("failed to read `{}`: {err}", rel_display),
                 None,
                 Some(location(&rel)),
             ));
@@ -363,13 +364,14 @@ struct RawEdge {
 fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
     let abs = repo_root.join(rel_path);
     let mut batch = DiscoveryBatch::default();
+    let rel_path_display = normalized_path(rel_path);
 
     let contents = match fs::read_to_string(&abs) {
         Ok(contents) => contents,
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::DiscoveryFailure,
-                format!("failed to read `{}`: {err}", rel_path),
+                format!("failed to read `{}`: {err}", rel_path_display),
                 None,
                 Some(location(rel_path)),
             ));
@@ -382,7 +384,7 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::MalformedFragment,
-                format!("failed to parse fragment `{}`: {}", rel_path, err),
+                format!("failed to parse fragment `{}`: {}", rel_path_display, err),
                 None,
                 Some(location(rel_path)),
             ));
@@ -407,7 +409,10 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     if batch.nodes.is_empty() && batch.edges.is_empty() {
         batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::EmptyFragment,
-            format!("fragment file `{}` contains no atlas metadata", rel_path),
+            format!(
+                "fragment file `{}` contains no atlas metadata",
+                rel_path_display
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -458,13 +463,14 @@ struct RawFrontmatterAtlas {
 fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
     let abs = repo_root.join(rel_path);
     let mut batch = DiscoveryBatch::default();
+    let rel_path_display = normalized_path(rel_path);
 
     let contents = match fs::read_to_string(&abs) {
         Ok(contents) => contents,
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::DiscoveryFailure,
-                format!("failed to read `{}`: {err}", rel_path),
+                format!("failed to read `{}`: {err}", rel_path_display),
                 None,
                 Some(location(rel_path)),
             ));
@@ -481,7 +487,7 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
         Err(err) => {
             batch.diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::MalformedFragment,
-                format!("failed to parse frontmatter `{}`: {err}", rel_path),
+                format!("failed to parse frontmatter `{}`: {err}", rel_path_display),
                 None,
                 Some(location(rel_path)),
             ));
@@ -496,7 +502,10 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     let Some(id) = raw.id else {
         batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::MalformedFragment,
-            format!("frontmatter in `{}` is missing `atlas.id`", rel_path),
+            format!(
+                "frontmatter in `{}` is missing `atlas.id`",
+                rel_path_display
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -506,7 +515,10 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     let Some(kind) = raw.kind else {
         batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::MalformedFragment,
-            format!("frontmatter in `{}` is missing `atlas.kind`", rel_path),
+            format!(
+                "frontmatter in `{}` is missing `atlas.kind`",
+                rel_path_display
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -578,6 +590,7 @@ fn push_frontmatter_edge(
     to: &str,
     rel_path: &Utf8Path,
 ) {
+    let rel_path_display = normalized_path(rel_path);
     match (
         AtlasId::parse(from.to_string()),
         AtlasId::parse(to.to_string()),
@@ -590,7 +603,7 @@ fn push_frontmatter_edge(
         }),
         _ => batch.diagnostics.push(AtlasDiagnostic::new(
             DiagnosticCode::InvalidId,
-            format!("invalid edge IDs in `{}`", rel_path),
+            format!("invalid edge IDs in `{}`", rel_path_display),
             None,
             Some(location(rel_path)),
         )),
@@ -614,7 +627,10 @@ fn parse_node(
     let kind = raw.kind.parse::<NodeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownNodeKind,
-            format!("unknown node kind `{invalid}` in `{}`", rel_path),
+            format!(
+                "unknown node kind `{invalid}` in `{}`",
+                normalized_path(rel_path)
+            ),
             Some(id.clone()),
             Some(location(rel_path)),
         )
@@ -667,7 +683,10 @@ fn parse_edge(
     let kind = raw.kind.parse::<EdgeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownEdgeKind,
-            format!("unknown edge kind `{invalid}` in `{}`", rel_path),
+            format!(
+                "unknown edge kind `{invalid}` in `{}`",
+                normalized_path(rel_path)
+            ),
             Some(from.clone()),
             Some(location(rel_path)),
         )
@@ -902,6 +921,10 @@ fn relative_path(repo_root: &Utf8Path, abs_path: &Utf8Path) -> Option<Utf8PathBu
         .strip_prefix(repo_root)
         .ok()
         .map(|path| path.to_path_buf())
+}
+
+fn normalized_path(path: &Utf8Path) -> RepoRelativePath {
+    RepoRelativePath::new(path.as_str())
 }
 
 fn location(path: &Utf8Path) -> atlasctl_types::SourceLocation {
