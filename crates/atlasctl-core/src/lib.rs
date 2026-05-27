@@ -884,9 +884,26 @@ fn is_implementation_path(path: &str) -> bool {
         || path.starts_with("src/")
         || path.starts_with("examples/")
         || path.ends_with(".rs")
-        || path.ends_with(".toml")
         || path.ends_with(".yaml")
         || path.ends_with(".yml")
+        || is_toml_implementation_path(path)
+}
+
+fn is_toml_implementation_path(path: &str) -> bool {
+    matches!(
+        path,
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "clippy.toml"
+            | "rustfmt.toml"
+            | "deny.toml"
+            | ".cargo/config.toml"
+    ) || path.ends_with("/Cargo.toml")
+        || path.ends_with("/Cargo.lock")
+        || path.ends_with("/clippy.toml")
+        || path.ends_with("/rustfmt.toml")
+        || path.ends_with("/deny.toml")
+        || path.ends_with("/.cargo/config.toml")
 }
 
 fn is_workflow_path(path: &str) -> bool {
@@ -3472,6 +3489,17 @@ mod golden {
                 .any(|d| d.code == DiagnosticCode::UncoveredCrate)
         );
         assert!(graph.metrics.error_count >= 2);
+    }
+
+    #[test]
+    fn classify_file_types_for_scope() {
+        assert!(is_implementation_path("crates/atlasctl-core/src/lib.rs"));
+        assert!(is_implementation_path("src/main.rs"));
+        assert!(is_implementation_path("examples/demo/example.rs"));
+        assert!(is_implementation_path("Cargo.toml"));
+        assert!(!is_implementation_path("docs/architecture.md"));
+        assert!(!is_implementation_path("policy/release/review.toml"));
+        assert!(is_implementation_path("atlas/core.atlas.yaml"));
     }
 
     #[test]

@@ -366,13 +366,19 @@ fn classify_path(path: &Utf8Path) -> FileKind {
     let name = path.file_name().unwrap_or_default();
     if name.ends_with(".atlas.yaml") || name.ends_with(".atlas.yml") {
         FileKind::Fragment
-    } else if name.ends_with(".toml") && path.parent() == Some(Utf8Path::new("policy")) {
+    } else if name.ends_with(".toml") && is_under_directory(path, "policy") {
         FileKind::PolicyToml
     } else if name.ends_with(".md") {
         FileKind::Markdown
     } else {
         FileKind::Other
     }
+}
+
+fn is_under_directory(path: &Utf8Path, root: &str) -> bool {
+    path.components()
+        .next()
+        .is_some_and(|component| component.as_str() == root)
 }
 
 #[derive(Default)]
@@ -1413,6 +1419,10 @@ edges:
             classify_path(Utf8Path::new("policy/release-review.toml")),
             FileKind::PolicyToml
         ));
+        assert!(matches!(
+            classify_path(Utf8Path::new("policy/release/review.toml")),
+            FileKind::PolicyToml
+        ));
     }
 
     #[test]
@@ -1481,6 +1491,54 @@ proves = ["cmd:policy-audit"]
 
         assert!(governs, "expected governs edge");
         assert!(proves, "expected proves edge");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_nested_policy_toml_file() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-nested-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy/release/governance")).unwrap();
+
+        let policy = r#"
+  [atlas]
+  id = "policy_ledger:release-governance"
+  kind = "policy_ledger"
+  title = "Release Governance"
+  summary = "Nested governance policy metadata."
+  surfaces = ["docs/**/*.md"]
+  proves = ["cmd:policy-audit"]
+"#;
+
+        let policy_path = root.join("policy/release/governance/review-process.toml");
+        std::fs::write(&policy_path, policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_policy_file(
+            &repo_root,
+            Utf8Path::new("policy/release/governance/review-process.toml"),
+        );
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected nested policy file to parse cleanly"
+        );
+        assert_eq!(batch.nodes.len(), 1, "expected one policy node");
+        assert_eq!(
+            batch.nodes[0].id.as_str(),
+            "policy_ledger:release-governance"
+        );
+        assert_eq!(batch.edges.len(), 1, "expected one proves edge");
+        assert!(
+            batch.edges[0].kind == EdgeKind::Proves
+                && batch.edges[0].to.as_str() == "cmd:policy-audit"
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }
