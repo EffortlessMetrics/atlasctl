@@ -104,8 +104,15 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
             .owners(&options.compile.repo_root, &repo_paths)?;
 
         let response = impacted_graph(&graph, &ImpactRequest { paths, owners });
+        let (has_uncovered_warning, has_uncovered_error) =
+            coverage_severity(options.compile.profile, !response.uncovered.is_empty());
 
-        Ok(ImpactOutcome { graph, response })
+        Ok(ImpactOutcome {
+            graph,
+            response,
+            has_uncovered_warning,
+            has_uncovered_error,
+        })
     }
 
     fn compile(&self, options: &CompileOptions) -> Result<AtlasGraph, AppError> {
@@ -183,6 +190,19 @@ pub struct ImpactOptions {
 pub struct ImpactOutcome {
     pub graph: AtlasGraph,
     pub response: ImpactResponse,
+    pub has_uncovered_warning: bool,
+    pub has_uncovered_error: bool,
+}
+
+fn coverage_severity(profile: ValidationProfile, has_uncovered: bool) -> (bool, bool) {
+    if !has_uncovered {
+        return (false, false);
+    }
+
+    match profile {
+        ValidationProfile::Strict => (false, true),
+        ValidationProfile::Default | ValidationProfile::Ci => (true, false),
+    }
 }
 
 #[derive(Debug, Error)]

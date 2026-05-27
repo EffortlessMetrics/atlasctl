@@ -518,7 +518,11 @@ edges:
                 }
             }
 
-            Ok(ExitCode::Ok)
+            if outcome.has_uncovered_error {
+                Ok(ExitCode::ValidationFailed)
+            } else {
+                Ok(ExitCode::Ok)
+            }
         }
         Command::Why(args) => {
             let subject = if args.path {
@@ -756,6 +760,13 @@ fn print_impacted(outcome: &atlasctl_app::ImpactOutcome) {
     println!("Impact Analysis:");
     println!("  impacted nodes: {}", outcome.response.impacted.len());
     println!("  uncovered changes: {}", outcome.response.uncovered.len());
+    if outcome.has_uncovered_warning {
+        println!("  status: warnings (uncovered changes)");
+    } else if outcome.has_uncovered_error {
+        println!("  status: errors (uncovered changes)");
+    } else {
+        println!("  status: ok");
+    }
 
     if !outcome.response.impacted.is_empty() {
         println!("\nImpacted Nodes:");

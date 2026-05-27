@@ -631,7 +631,49 @@ fn test_impacted_uncovered() {
         .assert()
         .success()
         .stdout(predicate::str::contains("uncovered changes: 1"))
+        .stdout(predicate::str::contains("status: warnings"))
         .stdout(predicate::str::contains("- unknown/file.txt"));
+}
+
+#[test]
+fn test_impacted_uncovered_ci_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "ci",
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("status: warnings"))
+        .stdout(predicate::str::contains("- unknown/file.txt"));
+}
+
+#[test]
+fn test_impacted_uncovered_strict_error() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "strict",
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("status: errors"));
 }
 
 #[test]

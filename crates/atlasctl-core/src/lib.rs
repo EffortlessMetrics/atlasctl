@@ -965,6 +965,92 @@ mod tests {
         assert!(graph.metrics.error_count >= 2);
     }
 
+    /// SCENARIO: Touch-path overlap is allowed across separate nodes
+    ///
+    /// GIVEN two scenario nodes that both touch the same path
+    /// WHEN the atlas is compiled
+    /// THEN there should be no duplicate_ownership diagnostics
+    #[test]
+    fn scenario_overlapping_touches_are_allowed() {
+        let mut node_one = node("scen:touch-one", NodeKind::Scenario);
+        node_one.owns.clear();
+        node_one.touches = vec![PathSelector::new("crates/engine/src/lib.rs")];
+
+        let mut node_two = node("scen:touch-two", NodeKind::Scenario);
+        node_two.owns.clear();
+        node_two.touches = vec![PathSelector::new("crates/engine/src/lib.rs")];
+
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![node_one, node_two, node("cmd:test", NodeKind::Command)],
+            edges: vec![
+                edge("scen:touch-one", EdgeKind::RunsWith, "cmd:test"),
+                edge("scen:touch-two", EdgeKind::RunsWith, "cmd:test"),
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+
+        let has_duplicate = graph
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::DuplicateOwnership);
+
+        assert!(
+            !has_duplicate,
+            "touch-overlapping nodes should not trigger duplicate ownership"
+        );
+    }
+
+    /// SCENARIO: Infra nodes are exempt from behavior/proof ownership checks
+    ///
+    /// GIVEN a crate node with no outgoing/incoming edges
+    /// WHEN the atlas is compiled
+    /// THEN no behavior/proof-only completeness diagnostics should apply
+    #[test]
+    fn scenario_infra_node_without_graph_connections_is_allowed() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![AtlasNode {
+                id: AtlasId::parse("crate:engine").expect("valid atlas id"),
+                kind: NodeKind::Crate,
+                role: NodeKind::Crate.role(),
+                title: "engine".to_string(),
+                summary: None,
+                owns: vec![PathSelector::new("crates/engine/src/lib.rs")],
+                touches: Vec::new(),
+                attrs: BTreeMap::new(),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let infra_errors: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.code,
+                    DiagnosticCode::ScenarioMissingCommand | DiagnosticCode::ScenarioMissingCrate
+                )
+            })
+            .collect();
+
+        assert!(
+            infra_errors.is_empty(),
+            "infra nodes should not emit behavior/proof diagnostics"
+        );
+    }
+
     /// SCENARIO: Querying the atlas with different search terms
     ///
     /// GIVEN a compiled atlas from a valid minimal fixture
