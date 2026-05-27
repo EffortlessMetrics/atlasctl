@@ -4,8 +4,9 @@ use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode,
     DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind, NodeMatch,
-    NodeRole, ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection, TraceEdge,
-    TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
+    NodeRole, ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection,
+    TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep,
+    WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -485,10 +486,7 @@ fn validate_completeness(
         let has_any_edge = outgoing.contains_key(&node.id) || incoming.contains_key(&node.id);
 
         // Infra nodes like crates and operational commands are allowed to be loosely coupled
-        if !has_any_edge
-            && node.role != NodeRole::Infra
-            && node.role != NodeRole::Command
-        {
+        if !has_any_edge && node.role != NodeRole::Infra && node.role != NodeRole::Command {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::OrphanNode,
                 format!("node `{}` has no relationships in the graph", node.id),
@@ -1051,6 +1049,156 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compiles_source_truth_stack_nodes_and_edges() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("roadmap:local-first-stack").expect("valid id"),
+                    kind: NodeKind::Roadmap,
+                    role: NodeKind::Roadmap.role(),
+                    title: "Local-first source-of-truth stack".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/roadmap")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/roadmap.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("proposal:ship-source-of-truth").expect("valid id"),
+                    kind: NodeKind::Proposal,
+                    role: NodeKind::Proposal.role(),
+                    title: "Ship source-of-truth".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/proposals")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposal.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("spec:source-of-truth").expect("valid id"),
+                    kind: NodeKind::Spec,
+                    role: NodeKind::Spec.role(),
+                    title: "Source-of-truth spec".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/specs")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/spec.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("goal:operationalize-atlas").expect("valid id"),
+                    kind: NodeKind::Goal,
+                    role: NodeKind::Goal.role(),
+                    title: "Operationalize atlas".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("atlas/example.atlas.yaml")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/goal.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("support_tier:docs-support").expect("valid id"),
+                    kind: NodeKind::SupportTier,
+                    role: NodeKind::SupportTier.role(),
+                    title: "Docs support tier".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("README.md")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("policy_ledger:review-guardrails").expect("valid id"),
+                    kind: NodeKind::PolicyLedger,
+                    role: NodeKind::PolicyLedger.role(),
+                    title: "Review guardrails policy".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new(".github/workflows")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("policy/workspace.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("closeout:release-01").expect("valid id"),
+                    kind: NodeKind::Closeout,
+                    role: NodeKind::Closeout.role(),
+                    title: "Closeout for release 0.1".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("CHANGELOG.md")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/closeout.md")),
+                },
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("roadmap:local-first-stack").unwrap(),
+                    kind: EdgeKind::Defines,
+                    to: AtlasId::parse("proposal:ship-source-of-truth").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/roadmap.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("proposal:ship-source-of-truth").unwrap(),
+                    kind: EdgeKind::Requires,
+                    to: AtlasId::parse("spec:source-of-truth").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposal.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("spec:source-of-truth").unwrap(),
+                    kind: EdgeKind::Decides,
+                    to: AtlasId::parse("goal:operationalize-atlas").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/spec.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("goal:operationalize-atlas").unwrap(),
+                    kind: EdgeKind::Claims,
+                    to: AtlasId::parse("support_tier:docs-support").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/goal.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("support_tier:docs-support").unwrap(),
+                    kind: EdgeKind::Governs,
+                    to: AtlasId::parse("policy_ledger:review-guardrails").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("goal:operationalize-atlas").unwrap(),
+                    kind: EdgeKind::ActiveFor,
+                    to: AtlasId::parse("support_tier:docs-support").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/goal.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("spec:source-of-truth").unwrap(),
+                    kind: EdgeKind::Closes,
+                    to: AtlasId::parse("closeout:release-01").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/spec.md")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert_eq!(graph.nodes.len(), 7);
+        assert_eq!(graph.edges.len(), 7);
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.id.as_str() == "goal:operationalize-atlas")
+        );
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .all(|diag| diag.severity != atlasctl_codes::Severity::Error)
+        );
+    }
+
     /// SCENARIO: Querying the atlas with different search terms
     ///
     /// GIVEN a compiled atlas from a valid minimal fixture
@@ -1450,11 +1598,19 @@ mod tests {
             let id = AtlasId::parse(&id_str).unwrap_or_else(|_| AtlasId::parse("req:default").unwrap());
             let kind = match id.kind_prefix() {
                 "req" => NodeKind::Requirement,
+                "roadmap" => NodeKind::Roadmap,
+                "proposal" => NodeKind::Proposal,
+                "spec" => NodeKind::Spec,
                 "scen" => NodeKind::Scenario,
                 "cmd" => NodeKind::Command,
                 "crate" => NodeKind::Crate,
                 "artifact" => NodeKind::Artifact,
                 "adr" => NodeKind::Adr,
+                "plan" => NodeKind::Plan,
+                "goal" => NodeKind::Goal,
+                "support_tier" => NodeKind::SupportTier,
+                "policy_ledger" => NodeKind::PolicyLedger,
+                "closeout" => NodeKind::Closeout,
                 "guide" => NodeKind::Guide,
                 "fixture" => NodeKind::Fixture,
                 "doc" => NodeKind::Document,
@@ -1823,6 +1979,9 @@ mod tests {
                     "cmd" => NodeKind::Command,
                     "crate" => NodeKind::Crate,
                     "artifact" => NodeKind::Artifact,
+                    "goal" => NodeKind::Goal,
+                    "plan" => NodeKind::Plan,
+                    "spec" => NodeKind::Spec,
                     _ => NodeKind::Requirement,
                 };
                 Some(AtlasNode {

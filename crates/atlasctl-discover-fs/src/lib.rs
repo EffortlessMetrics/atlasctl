@@ -453,6 +453,24 @@ struct RawFrontmatterAtlas {
     belongs_to: Vec<String>,
     #[serde(default)]
     supports: Vec<String>,
+    #[serde(default)]
+    defines: Vec<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    decides: Vec<String>,
+    #[serde(default)]
+    implements: Vec<String>,
+    #[serde(default)]
+    active_for: Vec<String>,
+    #[serde(default)]
+    claims: Vec<String>,
+    #[serde(default)]
+    governs: Vec<String>,
+    #[serde(default)]
+    closes: Vec<String>,
+    #[serde(default)]
+    supersedes: Vec<String>,
 }
 
 fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
@@ -566,6 +584,33 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     }
     for target in raw.supports {
         push_frontmatter_edge(&mut batch, &id, EdgeKind::Supports, &target, rel_path);
+    }
+    for target in raw.defines {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Defines, &target, rel_path);
+    }
+    for target in raw.requires {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Requires, &target, rel_path);
+    }
+    for target in raw.decides {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Decides, &target, rel_path);
+    }
+    for target in raw.implements {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Implements, &target, rel_path);
+    }
+    for target in raw.active_for {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::ActiveFor, &target, rel_path);
+    }
+    for target in raw.claims {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Claims, &target, rel_path);
+    }
+    for target in raw.governs {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Governs, &target, rel_path);
+    }
+    for target in raw.closes {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Closes, &target, rel_path);
+    }
+    for target in raw.supersedes {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Supersedes, &target, rel_path);
     }
 
     batch
@@ -961,5 +1006,67 @@ mod tests {
             classify_path(Utf8Path::new("docs/architecture.md")),
             FileKind::Markdown
         ));
+    }
+
+    #[test]
+    fn parses_source_truth_frontmatter_relations() {
+        let mut root = std::env::temp_dir();
+        root.push(format!("atlasctl-discover-fs-{}", std::process::id()));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        let markdown = r#"---
+atlas:
+  id: goal:ship-source-of-truth
+  kind: goal
+  title: Source-of-truth roadmap execution
+  active_for:
+    - roadmap:local-first
+  claims:
+    - support_tier:supported-claims
+  defines:
+    - proposal:source-truth-proposal
+  requires:
+    - spec:source-truth-spec
+  decides:
+    - policy_ledger:release-policy
+  implements:
+    - adr:stable-ids
+  governs:
+    - support_tier:supported-claims
+  closes:
+    - closeout:release-1
+  supersedes:
+    - plan:old-release-plan
+---
+# Source-of-Truth Execution
+"#;
+
+        let md_path = root.join("docs/roadmap-truth.md");
+        std::fs::write(&md_path, markdown).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_markdown_file(&repo_root, Utf8Path::new("docs/roadmap-truth.md"));
+
+        assert!(batch.diagnostics.is_empty(), "expected no diagnostics");
+        assert_eq!(batch.nodes.len(), 1);
+        assert_eq!(batch.nodes[0].id.as_str(), "goal:ship-source-of-truth");
+        assert_eq!(batch.nodes[0].kind, NodeKind::Goal);
+
+        let edge_kinds: Vec<_> = batch.edges.iter().map(|edge| edge.kind).collect();
+        assert!(edge_kinds.contains(&EdgeKind::ActiveFor));
+        assert!(edge_kinds.contains(&EdgeKind::Claims));
+        assert!(edge_kinds.contains(&EdgeKind::Defines));
+        assert!(edge_kinds.contains(&EdgeKind::Requires));
+        assert!(edge_kinds.contains(&EdgeKind::Decides));
+        assert!(edge_kinds.contains(&EdgeKind::Implements));
+        assert!(edge_kinds.contains(&EdgeKind::Governs));
+        assert!(edge_kinds.contains(&EdgeKind::Closes));
+        assert!(edge_kinds.contains(&EdgeKind::Supersedes));
+        assert_eq!(batch.edges.len(), 9);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -111,7 +111,15 @@ fn render_markdown(graph: &AtlasGraph) -> String {
     out.push_str("## Nodes by kind\n\n");
     for kind in [
         NodeKind::Requirement,
+        NodeKind::Roadmap,
+        NodeKind::Proposal,
+        NodeKind::Spec,
         NodeKind::Adr,
+        NodeKind::Plan,
+        NodeKind::Goal,
+        NodeKind::SupportTier,
+        NodeKind::PolicyLedger,
+        NodeKind::Closeout,
         NodeKind::Guide,
         NodeKind::Scenario,
         NodeKind::Fixture,
