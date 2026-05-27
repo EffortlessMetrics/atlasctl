@@ -651,7 +651,7 @@ fn edge_endpoint_is_valid(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atlasctl_ports::DiscoveryPort;
+    use atlasctl_app::DiscoveryPort;
     use atlasctl_types::{
         AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind, PathSelector,
         Provenance, RepoDescriptor, RepoRelativePath,
@@ -774,8 +774,8 @@ mod tests {
     /// AND all diagnostics should be empty (no errors or warnings)
     #[test]
     fn scenario_build_complete_atlas_from_valid_minimal_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
@@ -823,8 +823,8 @@ mod tests {
     /// AND the invalid edge should be excluded from the graph
     #[test]
     fn scenario_detect_broken_references_from_broken_link_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/broken-link");
@@ -871,8 +871,8 @@ mod tests {
     /// AND only the first node should be included in the graph
     #[test]
     fn scenario_detect_duplicate_ids_from_duplicate_id_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/duplicate-id");
@@ -921,8 +921,8 @@ mod tests {
     /// THEN diagnostics should be emitted for missing command and crate edges
     #[test]
     fn scenario_detect_orphan_scenarios_from_orphan_scenario_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/orphan-scenario");
@@ -973,8 +973,8 @@ mod tests {
     /// AND exact ID matches should have the highest score
     #[test]
     fn scenario_query_with_different_search_terms() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
@@ -1054,8 +1054,8 @@ mod tests {
     /// AND depth should be respected
     #[test]
     fn scenario_trace_with_different_directions() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
@@ -1137,8 +1137,8 @@ mod tests {
     /// AND strict profile should escalate warnings to errors
     #[test]
     fn scenario_validation_with_different_profiles() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/orphan-scenario");
@@ -1795,9 +1795,9 @@ mod tests {
 #[cfg(test)]
 mod golden {
     use super::*;
+    use atlasctl_app::{DiscoverRequest, DiscoveryPort, RenderPort};
     use atlasctl_discover_fs::FsDiscovery;
     use atlasctl_fixtures::repo;
-    use atlasctl_ports::{DiscoverRequest, DiscoveryPort, RenderPort};
     use atlasctl_render::AtlasRenderer;
     use atlasctl_types::{ChangedPath, RenderFormat, WhyRequest, WhySubject};
 
@@ -1928,8 +1928,8 @@ mod golden {
 
     #[test]
     fn scenario_validation_with_new_classes() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/requirement-unproven");

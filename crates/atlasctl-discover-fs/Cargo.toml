@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-atlasctl-ports = { path = "../atlasctl-ports" }
+atlasctl-app = { path = "../atlasctl-app" }
 atlasctl-types = { path = "../atlasctl-types" }
 camino.workspace = true
 cargo_metadata.workspace = true

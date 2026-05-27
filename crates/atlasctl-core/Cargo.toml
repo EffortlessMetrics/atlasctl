@@ -11,7 +11,7 @@ globset.workspace = true
 
 [dev-dependencies]
 atlasctl-discover-fs = { path = "../atlasctl-discover-fs" }
-atlasctl-ports = { path = "../atlasctl-ports" }
+atlasctl-app = { path = "../atlasctl-app" }
 atlasctl-render = { path = "../atlasctl-render" }
 atlasctl-fixtures = { path = "../atlasctl-fixtures" }
 camino.workspace = true

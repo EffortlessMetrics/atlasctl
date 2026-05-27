@@ -7,7 +7,6 @@ authors.workspace = true
 
 [dependencies]
 atlasctl-core = { path = "../atlasctl-core" }
-atlasctl-ports = { path = "../atlasctl-ports" }
 atlasctl-types = { path = "../atlasctl-types" }
 camino.workspace = true
 thiserror.workspace = true
