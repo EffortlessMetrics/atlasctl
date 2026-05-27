@@ -356,7 +356,8 @@ struct RawNode {
 #[derive(Debug, Deserialize)]
 struct RawEdge {
     from: String,
-    kind: String,
+    kind: Option<String>,
+    relation: Option<String>,
     to: String,
 }
 
@@ -664,7 +665,35 @@ fn parse_edge(
         )
     })?;
 
-    let kind = raw.kind.parse::<EdgeKind>().map_err(|invalid| {
+    let edge_kind = match (raw.kind, raw.relation) {
+        (Some(kind), None) => kind,
+        (None, Some(relation)) => relation,
+        (Some(kind), Some(relation)) if kind == relation => kind,
+        (Some(kind), Some(relation)) => {
+            return Err(AtlasDiagnostic::new(
+                DiagnosticCode::MalformedFragment,
+                format!(
+                    "edge relation conflict in `{}`: `kind` and `relation` differ (`{kind}` vs `{relation}`)",
+                    rel_path
+                ),
+                Some(from.clone()),
+                Some(location(rel_path)),
+            ));
+        }
+        (None, None) => {
+            return Err(AtlasDiagnostic::new(
+                DiagnosticCode::MalformedFragment,
+                format!(
+                    "edge in `{}` is missing both `kind` and `relation`",
+                    rel_path
+                ),
+                Some(from.clone()),
+                Some(location(rel_path)),
+            ));
+        }
+    };
+
+    let kind = edge_kind.parse::<EdgeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownEdgeKind,
             format!("unknown edge kind `{invalid}` in `{}`", rel_path),
@@ -961,5 +990,70 @@ mod tests {
             classify_path(Utf8Path::new("docs/architecture.md")),
             FileKind::Markdown
         ));
+    }
+
+    #[test]
+    fn parses_edge_relation_field() {
+        let raw = RawEdge {
+            from: "scen:test".to_string(),
+            kind: None,
+            relation: Some("proves".to_string()),
+            to: "req:test".to_string(),
+        };
+        let edge =
+            parse_edge(raw, Utf8Path::new("atlas/test.atlas.yaml"), None).expect("edge parse");
+        assert_eq!(edge.kind, EdgeKind::Proves);
+    }
+
+    #[test]
+    fn parses_edge_legacy_kind_field() {
+        let raw = RawEdge {
+            from: "scen:test".to_string(),
+            kind: Some("proves".to_string()),
+            relation: None,
+            to: "req:test".to_string(),
+        };
+        let edge =
+            parse_edge(raw, Utf8Path::new("atlas/test.atlas.yaml"), None).expect("edge parse");
+        assert_eq!(edge.kind, EdgeKind::Proves);
+    }
+
+    #[test]
+    fn parses_edge_when_relation_and_kind_match() {
+        let raw = RawEdge {
+            from: "scen:test".to_string(),
+            kind: Some("proves".to_string()),
+            relation: Some("proves".to_string()),
+            to: "req:test".to_string(),
+        };
+        let edge =
+            parse_edge(raw, Utf8Path::new("atlas/test.atlas.yaml"), None).expect("edge parse");
+        assert_eq!(edge.kind, EdgeKind::Proves);
+    }
+
+    #[test]
+    fn rejects_edge_with_relation_kind_mismatch() {
+        let raw = RawEdge {
+            from: "scen:test".to_string(),
+            kind: Some("proves".to_string()),
+            relation: Some("explains".to_string()),
+            to: "req:test".to_string(),
+        };
+        let err = parse_edge(raw, Utf8Path::new("atlas/test.atlas.yaml"), None)
+            .expect_err("edge parse fails");
+        assert_eq!(err.code, DiagnosticCode::MalformedFragment);
+    }
+
+    #[test]
+    fn rejects_edge_with_missing_relation_and_kind() {
+        let raw = RawEdge {
+            from: "scen:test".to_string(),
+            kind: None,
+            relation: None,
+            to: "req:test".to_string(),
+        };
+        let err = parse_edge(raw, Utf8Path::new("atlas/test.atlas.yaml"), None)
+            .expect_err("edge parse fails");
+        assert_eq!(err.code, DiagnosticCode::MalformedFragment);
     }
 }
