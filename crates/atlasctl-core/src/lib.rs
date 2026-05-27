@@ -283,6 +283,17 @@ fn validate_active_goal(
         );
     }
 
+    if let Some(goal_ref) = active_goal.goal.as_deref() {
+        validate_active_goal_ref(
+            "goal",
+            goal_ref,
+            NodeKind::Goal,
+            &node_index,
+            diagnostics,
+            active_goal_location.clone(),
+        );
+    }
+
     if let Some(spec_ref) = active_goal.spec.as_deref() {
         validate_active_goal_ref(
             "spec",
@@ -1363,6 +1374,76 @@ mod tests {
     }
 
     #[test]
+    fn active_goal_goal_reference_is_validated() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:missing-goal".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: None,
+                    spec: None,
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("plan:release-1").expect("plan id"),
+                    kind: NodeKind::Plan,
+                    role: NodeKind::Plan.role(),
+                    title: "release plan".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("plans/rel-plan.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                    kind: NodeKind::Scenario,
+                    role: NodeKind::Scenario.role(),
+                    title: "plan release".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("cmd:plan-release").expect("command id"),
+                    kind: NodeKind::Command,
+                    role: NodeKind::Command.role(),
+                    title: "plan release".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            edges: vec![AtlasEdge {
+                from: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                kind: EdgeKind::RunsWith,
+                to: AtlasId::parse("cmd:plan-release").expect("command id"),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::BrokenReference),
+            "active goal references a missing goal node should emit broken reference"
+        );
+    }
+
+    #[test]
     fn active_goal_references_and_nodes_are_validated() {
         let repo = DiscoveredRepo {
             repo: RepoDescriptor {
@@ -1379,6 +1460,17 @@ mod tests {
                 ..AtlasConfig::default()
             },
             nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("goal:operationalize-atlas").expect("goal id"),
+                    kind: NodeKind::Goal,
+                    role: NodeKind::Goal.role(),
+                    title: "goal for active work".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("goals/active.md")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/active.md")),
+                },
                 AtlasNode {
                     id: AtlasId::parse("plan:release-1").expect("plan id"),
                     kind: NodeKind::Plan,
