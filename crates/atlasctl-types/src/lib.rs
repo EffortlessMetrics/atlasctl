@@ -497,6 +497,18 @@ pub struct DiscoveredRepo {
     pub diagnostics: Vec<AtlasDiagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ActiveGoalConfig {
+    pub goal: Option<String>,
+    pub plan: Option<String>,
+    #[serde(default)]
+    pub proposal: Option<String>,
+    #[serde(default)]
+    pub spec: Option<String>,
+    #[serde(default)]
+    pub ready_work_items: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiscoveryConfig {
     #[serde(default = "default_roots")]
@@ -554,6 +566,8 @@ pub struct AtlasConfig {
     pub discovery: DiscoveryConfig,
     #[serde(default)]
     pub profiles: ProfileRegistry,
+    #[serde(default)]
+    pub active_goal: Option<ActiveGoalConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -566,6 +580,7 @@ impl Default for AtlasConfig {
             schema_version: ATLAS_SCHEMA_VERSION,
             discovery: DiscoveryConfig::default(),
             profiles: ProfileRegistry::default(),
+            active_goal: None,
         }
     }
 }

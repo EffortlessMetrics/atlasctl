@@ -58,6 +58,9 @@ pub enum DiagnosticCode {
     EmptyFragment,
     RequirementNotProven,
     UncoveredCrate,
+    ActiveGoalMissingPlan,
+    ActiveGoalMissingReadyWorkItems,
+    ActiveGoalWorkItemMissingProof,
 }
 
 impl DiagnosticCode {
@@ -86,6 +89,9 @@ impl DiagnosticCode {
             Self::EmptyFragment => "empty_fragment",
             Self::RequirementNotProven => "requirement_not_proven",
             Self::UncoveredCrate => "uncovered_crate",
+            Self::ActiveGoalMissingPlan => "active_goal_missing_plan",
+            Self::ActiveGoalMissingReadyWorkItems => "active_goal_missing_ready_work_items",
+            Self::ActiveGoalWorkItemMissingProof => "active_goal_work_item_missing_proof",
         }
     }
 
@@ -114,6 +120,9 @@ impl DiagnosticCode {
             Self::EmptyFragment => "fragment file contains no atlas metadata",
             Self::RequirementNotProven => "requirement is not proven by any scenario",
             Self::UncoveredCrate => "crate is not exercised by any scenario",
+            Self::ActiveGoalMissingPlan => "active goal references a missing plan",
+            Self::ActiveGoalMissingReadyWorkItems => "active goal has no ready work items",
+            Self::ActiveGoalWorkItemMissingProof => "active goal work item has no proof command",
         }
     }
 
@@ -127,6 +136,8 @@ impl DiagnosticCode {
             Self::EmptyFragment => Severity::Info,
             Self::RequirementNotProven => Severity::Warning,
             Self::UncoveredCrate => Severity::Warning,
+            Self::ActiveGoalMissingReadyWorkItems => Severity::Warning,
+            Self::ActiveGoalWorkItemMissingProof => Severity::Warning,
             _ => Severity::Error,
         }
     }

@@ -5,8 +5,8 @@ use atlasctl_ports::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
 };
 use atlasctl_types::{
-    AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, EdgeKind,
-    NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
+    ActiveGoalConfig, AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo,
+    EdgeKind, NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::MetadataCommand;
@@ -36,6 +36,12 @@ impl DiscoveryPort for FsDiscovery {
             .unwrap_or_else(|| "repo".to_string());
 
         let (config, mut diagnostics) = load_config(&repo_root, request.config_path.as_ref());
+        let (active_goal, active_diagnostics) = load_active_goal_manifest(&repo_root);
+        diagnostics.extend(active_diagnostics);
+        let config = AtlasConfig {
+            active_goal,
+            ..config
+        };
 
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -242,6 +248,45 @@ fn load_config(
             ));
             (AtlasConfig::default(), diagnostics)
         }
+    }
+}
+
+fn load_active_goal_manifest(
+    repo_root: &Utf8Path,
+) -> (Option<ActiveGoalConfig>, Vec<AtlasDiagnostic>) {
+    let active_path = repo_root.join(".codex/goals/active.toml");
+    if !active_path.exists() {
+        return (None, vec![]);
+    }
+
+    let rel_path =
+        relative_path(repo_root, &active_path).unwrap_or_else(|| Utf8PathBuf::from("active.toml"));
+    let contents = match fs::read_to_string(&active_path) {
+        Ok(contents) => contents,
+        Err(err) => {
+            return (
+                None,
+                vec![AtlasDiagnostic::new(
+                    DiagnosticCode::InvalidConfig,
+                    format!("failed to read active goal manifest `{}`: {err}", rel_path),
+                    None,
+                    Some(location(&rel_path)),
+                )],
+            );
+        }
+    };
+
+    match toml::from_str::<ActiveGoalConfig>(&contents) {
+        Ok(active_goal) => (Some(active_goal), vec![]),
+        Err(err) => (
+            None,
+            vec![AtlasDiagnostic::new(
+                DiagnosticCode::InvalidConfig,
+                format!("failed to parse active goal manifest `{}`: {err}", rel_path),
+                None,
+                Some(location(&rel_path)),
+            )],
+        ),
     }
 }
 
@@ -1066,6 +1111,61 @@ atlas:
         assert!(edge_kinds.contains(&EdgeKind::Closes));
         assert!(edge_kinds.contains(&EdgeKind::Supersedes));
         assert_eq!(batch.edges.len(), 9);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn discovers_active_goal_manifest() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-active-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".codex/goals")).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        let manifest = r#"
+goal = "goal:operationalize-atlas"
+plan = "plan:release-1"
+proposal = "proposal:release-plan"
+spec = "spec:release-spec"
+ready_work_items = ["scen:plan-release", "scen:docs-check"]
+"#;
+
+        std::fs::write(root.join(".codex/goals/active.toml"), manifest).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/engine\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("crates/engine")).unwrap();
+        std::fs::write(
+            root.join("crates/engine/Cargo.toml"),
+            "[package]\nname = \"engine\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+
+        let request = DiscoverRequest {
+            repo_root: Utf8PathBuf::from_path_buf(root.clone()).unwrap(),
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery.discover(&request).expect("discovery succeeds");
+
+        let active_goal = discovered.config.active_goal.expect("active goal loaded");
+        assert_eq!(
+            active_goal.goal,
+            Some("goal:operationalize-atlas".to_string())
+        );
+        assert_eq!(active_goal.plan, Some("plan:release-1".to_string()));
+        assert_eq!(
+            active_goal.ready_work_items,
+            vec!["scen:plan-release", "scen:docs-check"]
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

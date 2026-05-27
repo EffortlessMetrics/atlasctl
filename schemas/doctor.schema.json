@@ -218,7 +218,10 @@
         "duplicate_ownership",
         "empty_fragment",
         "requirement_not_proven",
-        "uncovered_crate"
+        "uncovered_crate",
+        "active_goal_missing_plan",
+        "active_goal_missing_ready_work_items",
+        "active_goal_work_item_missing_proof"
       ]
     },
     "EdgeKind": {

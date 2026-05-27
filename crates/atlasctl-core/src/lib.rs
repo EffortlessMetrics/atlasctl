@@ -2,11 +2,11 @@
 
 use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
-    ATLAS_SCHEMA_VERSION, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode,
-    DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind, NodeMatch,
-    NodeRole, ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection,
-    TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep,
-    WhySubject,
+    ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId,
+    AtlasMetrics, AtlasNode, DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse,
+    NodeKind, NodeMatch, NodeRole, ProfileSettings, QueryRequest, QueryResponse, SourceLocation,
+    TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest,
+    WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -104,6 +104,12 @@ pub fn compile_atlas(discovered: DiscoveredRepo, profile: ValidationProfile) -> 
     }
 
     let nodes: Vec<AtlasNode> = unique_nodes.values().cloned().collect();
+    validate_active_goal(
+        discovered.config.active_goal.as_ref(),
+        &nodes,
+        &valid_edges,
+        &mut diagnostics,
+    );
     validate_completeness(&nodes, &valid_edges, &settings, &mut diagnostics);
     apply_profile_escalation(&settings, &mut diagnostics);
     sort_diagnostics(&mut diagnostics);
@@ -130,6 +136,207 @@ pub fn compile_atlas(discovered: DiscoveredRepo, profile: ValidationProfile) -> 
         edges: valid_edges,
         diagnostics,
         metrics,
+    }
+}
+
+fn validate_active_goal(
+    active_goal: Option<&ActiveGoalConfig>,
+    nodes: &[AtlasNode],
+    edges: &[AtlasEdge],
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+) {
+    let Some(active_goal) = active_goal else {
+        return;
+    };
+
+    let mut node_index = BTreeMap::<AtlasId, &AtlasNode>::new();
+    for node in nodes {
+        node_index.insert(node.id.clone(), node);
+    }
+
+    let active_goal_location = SourceLocation {
+        path: atlasctl_types::RepoRelativePath::new(".codex/goals/active.toml"),
+        line: None,
+        column: None,
+    };
+
+    let mut resolved_plan: Option<AtlasId> = None;
+    match active_goal.plan.as_deref() {
+        None => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::ActiveGoalMissingPlan,
+                "active goal does not define a plan",
+                None,
+                Some(active_goal_location.clone()),
+            ));
+        }
+        Some(plan_ref) => {
+            let parsed_plan_ref = match AtlasId::parse(plan_ref) {
+                Ok(plan) => Some(plan),
+                Err(err) => {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::InvalidId,
+                        format!("active goal plan id `{}` is invalid: {err}", plan_ref),
+                        None,
+                        Some(active_goal_location.clone()),
+                    ));
+                    None
+                }
+            };
+
+            if let Some(plan) = parsed_plan_ref {
+                resolved_plan = Some(plan.clone());
+                match node_index.get(&plan) {
+                    Some(node) if node.kind == NodeKind::Plan => {}
+                    Some(_) => {
+                        diagnostics.push(AtlasDiagnostic::new(
+                            DiagnosticCode::BrokenReference,
+                            format!("active goal plan `{}` exists but is not a plan node", plan),
+                            Some(plan.clone()),
+                            Some(active_goal_location.clone()),
+                        ));
+                    }
+                    None => {
+                        diagnostics.push(AtlasDiagnostic::new(
+                            DiagnosticCode::BrokenReference,
+                            format!("active goal plan `{}` does not exist", plan),
+                            Some(plan.clone()),
+                            Some(active_goal_location.clone()),
+                        ));
+                    }
+                }
+            }
+        }
+    };
+
+    if active_goal.ready_work_items.is_empty() {
+        diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::ActiveGoalMissingReadyWorkItems,
+            "active goal has no ready work items",
+            resolved_plan,
+            Some(active_goal_location.clone()),
+        ));
+    } else {
+        let mut has_proof_command = BTreeMap::<AtlasId, bool>::new();
+        for edge in edges {
+            if edge.kind == EdgeKind::RunsWith {
+                has_proof_command.insert(edge.from.clone(), true);
+            }
+        }
+
+        for work_item_ref in &active_goal.ready_work_items {
+            let work_item = match AtlasId::parse(work_item_ref) {
+                Ok(work_item) => work_item,
+                Err(err) => {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::InvalidId,
+                        format!(
+                            "active goal ready work item id `{}` is invalid: {err}",
+                            work_item_ref
+                        ),
+                        None,
+                        Some(active_goal_location.clone()),
+                    ));
+                    continue;
+                }
+            };
+
+            let Some(node) = node_index.get(&work_item) else {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::BrokenReference,
+                    format!("active goal work item `{}` does not exist", work_item),
+                    Some(work_item.clone()),
+                    Some(active_goal_location.clone()),
+                ));
+                continue;
+            };
+
+            if node.role != NodeRole::Proof {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::ActiveGoalWorkItemMissingProof,
+                    format!("active goal work item `{}` is not a proof item", work_item),
+                    Some(work_item.clone()),
+                    Some(active_goal_location.clone()),
+                ));
+                continue;
+            }
+
+            if !has_proof_command.contains_key(&work_item) {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::ActiveGoalWorkItemMissingProof,
+                    format!("active goal work item `{}` has no proof command", work_item),
+                    Some(work_item),
+                    Some(active_goal_location.clone()),
+                ));
+            }
+        }
+    }
+
+    if let Some(proposal_ref) = active_goal.proposal.as_deref() {
+        validate_active_goal_ref(
+            "proposal",
+            proposal_ref,
+            NodeKind::Proposal,
+            &node_index,
+            diagnostics,
+            active_goal_location.clone(),
+        );
+    }
+
+    if let Some(spec_ref) = active_goal.spec.as_deref() {
+        validate_active_goal_ref(
+            "spec",
+            spec_ref,
+            NodeKind::Spec,
+            &node_index,
+            diagnostics,
+            active_goal_location.clone(),
+        );
+    }
+}
+
+fn validate_active_goal_ref(
+    name: &str,
+    value: &str,
+    expected_kind: NodeKind,
+    node_index: &BTreeMap<AtlasId, &AtlasNode>,
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+    location: SourceLocation,
+) {
+    let parsed = match AtlasId::parse(value) {
+        Ok(id) => id,
+        Err(err) => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::InvalidId,
+                format!("active goal {name} id `{value}` is invalid: {err}"),
+                None,
+                Some(location),
+            ));
+            return;
+        }
+    };
+
+    match node_index.get(&parsed) {
+        Some(node) if node.kind == expected_kind => {}
+        Some(_) => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::BrokenReference,
+                format!(
+                    "active goal {name} `{}` exists but is not a `{}` node",
+                    parsed, expected_kind
+                ),
+                Some(parsed),
+                Some(location),
+            ));
+        }
+        None => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::BrokenReference,
+                format!("active goal {name} `{}` does not exist", parsed),
+                Some(parsed),
+                Some(location),
+            ));
+        }
     }
 }
 
@@ -651,8 +858,8 @@ mod tests {
     use super::*;
     use atlasctl_ports::DiscoveryPort;
     use atlasctl_types::{
-        AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind, PathSelector,
-        Provenance, RepoDescriptor, RepoRelativePath,
+        ActiveGoalConfig, AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind,
+        PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
     };
     use proptest::proptest;
     use std::collections::BTreeMap;
@@ -1046,6 +1253,218 @@ mod tests {
         assert!(
             infra_errors.is_empty(),
             "infra nodes should not emit behavior/proof diagnostics"
+        );
+    }
+
+    #[test]
+    fn active_goal_missing_plan_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: None,
+                    proposal: Some("proposal:release-plan".to_string()),
+                    spec: Some("spec:release-spec".to_string()),
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                node("scen:plan-release", NodeKind::Scenario),
+                node("cmd:release", NodeKind::Command),
+                node("proposal:release-plan", NodeKind::Proposal),
+                node("spec:release-spec", NodeKind::Spec),
+            ],
+            diagnostics: vec![],
+            edges: vec![AtlasEdge {
+                from: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                kind: EdgeKind::RunsWith,
+                to: AtlasId::parse("cmd:release").expect("command id"),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ActiveGoalMissingPlan),
+            "active goal with no plan should emit missing plan"
+        );
+    }
+
+    #[test]
+    fn active_goal_missing_ready_work_items_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: None,
+                    spec: None,
+                    ready_work_items: vec![],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![node("plan:release-1", NodeKind::Plan)],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ActiveGoalMissingReadyWorkItems),
+            "active goal with no ready work items should emit warning"
+        );
+    }
+
+    #[test]
+    fn active_goal_work_item_missing_proof_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: None,
+                    spec: None,
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                node("scen:plan-release", NodeKind::Scenario),
+                node("plan:release-1", NodeKind::Plan),
+            ],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ActiveGoalWorkItemMissingProof),
+            "active goal work item without runs_with should emit missing proof"
+        );
+    }
+
+    #[test]
+    fn active_goal_references_and_nodes_are_validated() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: Some("proposal:release-plan".to_string()),
+                    spec: Some("spec:release-spec".to_string()),
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("plan:release-1").expect("plan id"),
+                    kind: NodeKind::Plan,
+                    role: NodeKind::Plan.role(),
+                    title: "release plan".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("plans/rel-plan.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("proposal:release-plan").expect("proposal id"),
+                    kind: NodeKind::Proposal,
+                    role: NodeKind::Proposal.role(),
+                    title: "release proposal".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/proposals/release.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposals/release.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("spec:release-spec").expect("spec id"),
+                    kind: NodeKind::Spec,
+                    role: NodeKind::Spec.role(),
+                    title: "release spec".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/specs/release.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/specs/release.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                    kind: NodeKind::Scenario,
+                    role: NodeKind::Scenario.role(),
+                    title: "plan release".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("cmd:plan-release").expect("command id"),
+                    kind: NodeKind::Command,
+                    role: NodeKind::Command.role(),
+                    title: "ci".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("crates/engine/src/main.rs")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("plan:release-1").expect("plan id"),
+                    kind: EdgeKind::Defines,
+                    to: AtlasId::parse("proposal:release-plan").expect("proposal id"),
+                    provenance: Provenance::new(RepoRelativePath::new("plans/rel-plan.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("proposal:release-plan").expect("proposal id"),
+                    kind: EdgeKind::Requires,
+                    to: AtlasId::parse("spec:release-spec").expect("spec id"),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposals/release.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                    kind: EdgeKind::RunsWith,
+                    to: AtlasId::parse("cmd:plan-release").expect("command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph.diagnostics.iter().all(|diag| !matches!(
+                diag.code,
+                DiagnosticCode::BrokenReference | DiagnosticCode::InvalidId
+            )),
+            "proposal and spec links should resolve"
         );
     }
 
