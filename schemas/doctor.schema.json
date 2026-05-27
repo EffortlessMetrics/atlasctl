@@ -221,7 +221,8 @@
         "uncovered_crate",
         "active_goal_missing_plan",
         "active_goal_missing_ready_work_items",
-        "active_goal_work_item_missing_proof"
+        "active_goal_work_item_missing_proof",
+        "claim_missing_proof_command"
       ]
     },
     "EdgeKind": {
@@ -262,6 +263,7 @@
         "support_tier",
         "policy_ledger",
         "closeout",
+        "claim",
         "guide",
         "scenario",
         "fixture",

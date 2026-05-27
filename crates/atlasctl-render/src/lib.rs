@@ -120,6 +120,7 @@ fn render_markdown(graph: &AtlasGraph) -> String {
         NodeKind::SupportTier,
         NodeKind::PolicyLedger,
         NodeKind::Closeout,
+        NodeKind::Claim,
         NodeKind::Guide,
         NodeKind::Scenario,
         NodeKind::Fixture,

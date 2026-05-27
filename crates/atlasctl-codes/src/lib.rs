@@ -61,6 +61,7 @@ pub enum DiagnosticCode {
     ActiveGoalMissingPlan,
     ActiveGoalMissingReadyWorkItems,
     ActiveGoalWorkItemMissingProof,
+    ClaimMissingProofCommand,
 }
 
 impl DiagnosticCode {
@@ -92,6 +93,7 @@ impl DiagnosticCode {
             Self::ActiveGoalMissingPlan => "active_goal_missing_plan",
             Self::ActiveGoalMissingReadyWorkItems => "active_goal_missing_ready_work_items",
             Self::ActiveGoalWorkItemMissingProof => "active_goal_work_item_missing_proof",
+            Self::ClaimMissingProofCommand => "claim_missing_proof_command",
         }
     }
 
@@ -123,6 +125,7 @@ impl DiagnosticCode {
             Self::ActiveGoalMissingPlan => "active goal references a missing plan",
             Self::ActiveGoalMissingReadyWorkItems => "active goal has no ready work items",
             Self::ActiveGoalWorkItemMissingProof => "active goal work item has no proof command",
+            Self::ClaimMissingProofCommand => "claim is missing a proof command",
         }
     }
 
@@ -138,6 +141,7 @@ impl DiagnosticCode {
             Self::UncoveredCrate => Severity::Warning,
             Self::ActiveGoalMissingReadyWorkItems => Severity::Warning,
             Self::ActiveGoalWorkItemMissingProof => Severity::Warning,
+            Self::ClaimMissingProofCommand => Severity::Warning,
             _ => Severity::Error,
         }
     }

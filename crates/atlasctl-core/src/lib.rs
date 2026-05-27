@@ -694,6 +694,10 @@ fn validate_completeness(
 ) {
     let mut outgoing = BTreeMap::<AtlasId, Vec<&AtlasEdge>>::new();
     let mut incoming = BTreeMap::<AtlasId, Vec<&AtlasEdge>>::new();
+    let node_kinds = nodes
+        .iter()
+        .map(|node| (node.id.clone(), node.kind))
+        .collect::<BTreeMap<_, _>>();
 
     for edge in edges {
         outgoing.entry(edge.from.clone()).or_default().push(edge);
@@ -702,6 +706,15 @@ fn validate_completeness(
 
     for node in nodes {
         let has_any_edge = outgoing.contains_key(&node.id) || incoming.contains_key(&node.id);
+        let claim_has_proof_command = outgoing.get(&node.id).is_some_and(|edges| {
+            edges.iter().any(|edge| {
+                edge.kind == EdgeKind::Proves
+                    && node_kinds
+                        .get(&edge.to)
+                        .copied()
+                        .is_some_and(|to| to == NodeKind::Command)
+            })
+        });
 
         // Infra nodes like crates and operational commands are allowed to be loosely coupled
         if !has_any_edge && node.role != NodeRole::Infra && node.role != NodeRole::Command {
@@ -811,6 +824,19 @@ fn validate_completeness(
                             Some(node.provenance.location()),
                         ));
                     }
+                }
+            }
+            _ if node.kind == NodeKind::Claim => {
+                if !claim_has_proof_command {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::ClaimMissingProofCommand,
+                        format!(
+                            "claim `{}` is not linked to any command via a `proves` edge",
+                            node.id
+                        ),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
                 }
             }
             _ => {}
@@ -1707,6 +1733,99 @@ mod tests {
                 .diagnostics
                 .iter()
                 .all(|diag| diag.severity != atlasctl_codes::Severity::Error)
+        );
+    }
+
+    #[test]
+    fn claim_without_proof_command_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("claim:docs-readme-accuracy", NodeKind::Claim),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+                node("req:missing-proof", NodeKind::Requirement),
+                node("spec:source-of-truth", NodeKind::Spec),
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Supports,
+                    to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("req:missing-proof").expect("valid requirement id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("support_tier:docs-support")
+                        .expect("valid support tier id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("spec:source-of-truth").expect("valid spec id"),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/README.md")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::ClaimMissingProofCommand),
+            "claim without command proof should emit a warning"
+        );
+    }
+
+    #[test]
+    fn claim_with_command_proof_is_supported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("claim:docs-readme-accuracy", NodeKind::Claim),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+                node("cmd:docs-proof", NodeKind::Command),
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Supports,
+                    to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("cmd:docs-proof").expect("valid command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("support_tier:docs-support")
+                        .expect("valid support tier id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("cmd:docs-proof").expect("valid command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/README.md")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            !graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::ClaimMissingProofCommand),
+            "claim with command proof should not emit proof warning"
         );
     }
 

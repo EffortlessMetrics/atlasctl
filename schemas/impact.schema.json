@@ -140,6 +140,7 @@
         "support_tier",
         "policy_ledger",
         "closeout",
+        "claim",
         "guide",
         "scenario",
         "fixture",

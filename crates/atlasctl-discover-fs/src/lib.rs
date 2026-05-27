@@ -1116,6 +1116,99 @@ atlas:
     }
 
     #[test]
+    fn parses_support_tier_claim_links() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-support-tier-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("docs/status")).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        let support_tier = r#"---
+atlas:
+  id: support_tier:docs-support
+  kind: support_tier
+  title: Docs support tier
+  proves:
+    - cmd:docs-proof
+  claims:
+    - claim:docs-readme-accuracy
+---
+# Docs support tier
+"#;
+
+        let claim = r#"---
+atlas:
+  id: claim:docs-readme-accuracy
+  kind: claim
+  title: README keeps claims truthful
+  supports:
+    - support_tier:docs-support
+  proves:
+    - cmd:docs-proof
+---
+# README
+"#;
+
+        let md_path = root.join("docs/status/SUPPORT_TIERS.md");
+        let claim_path = root.join("docs/README.md");
+
+        std::fs::write(&md_path, support_tier).unwrap();
+        std::fs::write(&claim_path, claim).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let support_batch =
+            parse_markdown_file(&repo_root, Utf8Path::new("docs/status/SUPPORT_TIERS.md"));
+        let claim_batch = parse_markdown_file(&repo_root, Utf8Path::new("docs/README.md"));
+
+        let batch_nodes: Vec<_> = support_batch
+            .nodes
+            .into_iter()
+            .chain(claim_batch.nodes)
+            .collect();
+        let batch_edges: Vec<_> = support_batch
+            .edges
+            .into_iter()
+            .chain(claim_batch.edges)
+            .collect();
+
+        assert!(
+            support_batch.diagnostics.is_empty(),
+            "expected no diagnostics in support tier fixture"
+        );
+        assert!(
+            claim_batch.diagnostics.is_empty(),
+            "expected no diagnostics in claim fixture"
+        );
+        assert_eq!(batch_nodes.len(), 2);
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "support_tier:docs-support"
+                && edge.kind == EdgeKind::Claims
+                && edge.to.as_str() == "claim:docs-readme-accuracy"
+        }));
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "support_tier:docs-support"
+                && edge.kind == EdgeKind::Proves
+                && edge.to.as_str() == "cmd:docs-proof"
+        }));
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "claim:docs-readme-accuracy"
+                && edge.kind == EdgeKind::Supports
+                && edge.to.as_str() == "support_tier:docs-support"
+        }));
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "claim:docs-readme-accuracy"
+                && edge.kind == EdgeKind::Proves
+                && edge.to.as_str() == "cmd:docs-proof"
+        }));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn discovers_active_goal_manifest() {
         let mut root = std::env::temp_dir();
         root.push(format!(
