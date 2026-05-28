@@ -3,9 +3,10 @@
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId,
     AtlasMetrics, AtlasNode, ChangedPath, DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit,
-    ImpactRequest, ImpactResponse, NodeKind, NodeMatch, NodeRole, ProfileSettings, QueryRequest,
-    QueryResponse, RepoRelativePath, Severity, SourceLocation, TraceDirection, TraceEdge,
-    TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
+    ImpactRequest, ImpactResponse, NodeKind, NodeMatch, NodeRole, PathSelector, ProfileSettings,
+    QueryRequest, QueryResponse, RepoRelativePath, Severity, SourceLocation, TraceDirection,
+    TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep,
+    WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -510,20 +511,36 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
     let root = match &request.subject {
         WhySubject::Id(id) => graph.nodes.iter().find(|n| n.id == *id)?,
         WhySubject::Path(path) => {
-            // Find nodes that have a selector matching this path
-            graph.nodes.iter().find(|n| {
-                n.all_paths().any(|p| {
-                    let pattern = p.pattern.replace('\\', "/");
-                    let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
-                        .ok()
-                        .and_then(|g| g.compile_matcher().into());
-                    if let Some(glob) = glob {
-                        glob.is_match(path.as_str())
-                    } else {
-                        false
+            // Choose the most specific matching node deterministically:
+            // - prefer owns over touches
+            // - prefer more literal selectors
+            // - prefer longer selector patterns
+            // - deterministic tie-breaker by node id
+            let mut best: Option<(&AtlasNode, bool, usize, usize)> = None;
+
+            for node in &graph.nodes {
+                for selector in &node.owns {
+                    if path_matches_selector(path, selector) {
+                        let exactness = path_selector_exactness(&selector.pattern);
+                        let candidate_len = selector.pattern.len();
+                        if is_better_path_match(node, true, exactness, candidate_len, &best) {
+                            best = Some((node, true, exactness, candidate_len));
+                        }
                     }
-                })
-            })?
+                }
+
+                for selector in &node.touches {
+                    if path_matches_selector(path, selector) {
+                        let exactness = path_selector_exactness(&selector.pattern);
+                        let candidate_len = selector.pattern.len();
+                        if is_better_path_match(node, false, exactness, candidate_len, &best) {
+                            best = Some((node, false, exactness, candidate_len));
+                        }
+                    }
+                }
+            }
+
+            best.map(|(node, _, _, _)| node)?
         }
     };
 
@@ -558,7 +575,7 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
         } else if edge.from == root.id {
             // Outgoing edges
             match edge.kind {
-                EdgeKind::Emits | EdgeKind::Exercises | EdgeKind::RunsWith => {
+                EdgeKind::Emits | EdgeKind::Exercises | EdgeKind::RunsWith | EdgeKind::Proves => {
                     if let Some(node) = graph.nodes.iter().find(|n| n.id == edge.to)
                         && visited.insert(node.id.clone())
                     {
@@ -578,6 +595,53 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
         root: root.clone(),
         chain,
     })
+}
+
+fn is_better_path_match(
+    node: &AtlasNode,
+    owns: bool,
+    exactness: usize,
+    pattern_len: usize,
+    current: &Option<(&AtlasNode, bool, usize, usize)>,
+) -> bool {
+    match current {
+        None => true,
+        Some((current_node, current_owns, current_exactness, current_pattern_len)) => {
+            owns != *current_owns && owns
+                || (owns == *current_owns
+                    && (exactness > *current_exactness
+                        || (exactness == *current_exactness
+                            && (pattern_len > *current_pattern_len
+                                || (pattern_len == *current_pattern_len
+                                    && node.id < current_node.id)))))
+        }
+    }
+}
+
+fn path_matches_selector(path: &RepoRelativePath, selector: &PathSelector) -> bool {
+    let pattern = selector.pattern.replace('\\', "/");
+    let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
+        .ok()
+        .and_then(|g| g.compile_matcher().into());
+
+    if let Some(glob) = glob {
+        glob.is_match(path.as_str())
+    } else {
+        false
+    }
+}
+
+fn path_selector_exactness(pattern: &str) -> usize {
+    pattern
+        .chars()
+        .filter(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(
+                    ch,
+                    '/' | '\\' | '-' | '_' | '.' | ':' | '@' | '[' | ']' | '{' | '}' | '(' | ')'
+                )
+        })
+        .count()
 }
 
 pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResponse {
@@ -3517,7 +3581,10 @@ mod golden {
     use atlasctl_discover_fs::FsDiscovery;
     use atlasctl_fixtures::repo;
     use atlasctl_render::AtlasRenderer;
-    use atlasctl_types::{ChangedPath, RenderFormat, WhyRequest, WhySubject};
+    use atlasctl_types::{
+        AtlasEdge, AtlasId, AtlasNode, ChangedPath, EdgeKind, NodeKind, NodeRole, PathSelector,
+        Provenance, RenderFormat, RepoRelativePath, WhyRequest, WhySubject,
+    };
     use serde_json::{Value, json};
 
     const FIXTURES: &[&str] = &[
@@ -3572,6 +3639,83 @@ mod golden {
         };
         let response = why_graph(&graph, &request).expect("response");
         assert_eq!(response.root.id.as_str(), "crate:engine");
+    }
+
+    #[test]
+    fn scenario_why_by_path_prefers_owning_match_over_touch_match() {
+        let mut graph = build_atlas("valid-minimal");
+        let owning_id = AtlasId::parse("req:owning-match").unwrap();
+        graph.nodes.push(AtlasNode {
+            id: owning_id.clone(),
+            kind: NodeKind::Requirement,
+            role: NodeRole::Behavior,
+            title: "Owning matcher".to_string(),
+            summary: None,
+            owns: vec![PathSelector::new("docs/**/*.md")],
+            touches: vec![],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/why-rank.atlas.yaml")),
+        });
+        let touching_id = AtlasId::parse("scen:touching-match").unwrap();
+        graph.nodes.push(AtlasNode {
+            id: touching_id,
+            kind: NodeKind::Scenario,
+            role: NodeRole::Proof,
+            title: "Touching matcher".to_string(),
+            summary: None,
+            owns: vec![],
+            touches: vec![PathSelector::new("docs/**/*.md")],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/why-rank.atlas.yaml")),
+        });
+
+        let response = why_graph(
+            &graph,
+            &WhyRequest {
+                subject: WhySubject::Path(RepoRelativePath::new("docs/guide/overview.md")),
+            },
+        )
+        .expect("response");
+        assert_eq!(response.root.id.as_str(), "req:owning-match");
+    }
+
+    #[test]
+    fn why_chain_includes_provenance_of_claim() {
+        let mut graph = build_atlas("valid-minimal");
+        let claim_id = AtlasId::parse("claim:why-readme").unwrap();
+        let cmd_id = AtlasId::parse("cmd:ci-fast").unwrap();
+        graph.nodes.push(AtlasNode {
+            id: claim_id.clone(),
+            kind: NodeKind::Claim,
+            role: NodeRole::Document,
+            title: "Why README claim".to_string(),
+            summary: None,
+            owns: vec![PathSelector::new("README.md")],
+            touches: vec![],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("README.md")),
+        });
+        graph.edges.push(AtlasEdge {
+            from: claim_id.clone(),
+            kind: EdgeKind::Proves,
+            to: cmd_id.clone(),
+            provenance: Provenance::new(RepoRelativePath::new("README.md")),
+        });
+
+        let response = why_graph(
+            &graph,
+            &WhyRequest {
+                subject: WhySubject::Id(claim_id),
+            },
+        )
+        .expect("response");
+
+        assert!(
+            response
+                .chain
+                .iter()
+                .any(|step| step.relationship == EdgeKind::Proves && step.node.id == cmd_id)
+        );
     }
 
     #[test]

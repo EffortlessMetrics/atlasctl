@@ -497,11 +497,7 @@ fn render_why_markdown(response: &WhyResponse) -> String {
         out.push_str("_No immediate proof chain found._\n");
     } else {
         for step in &response.chain {
-            let direction = match step.direction {
-                atlasctl_types::TraceDirection::Incoming => "is supported by",
-                atlasctl_types::TraceDirection::Outgoing => "is exercised by",
-                atlasctl_types::TraceDirection::Both => "relates to",
-            };
+            let direction = why_chain_label(&response.root.id, &step.relationship, &step.direction);
             out.push_str(&format!(
                 "- `{}` {} `{}` (via `{}`)\n",
                 response.root.id, direction, step.node.id, step.relationship
@@ -510,6 +506,31 @@ fn render_why_markdown(response: &WhyResponse) -> String {
     }
 
     out
+}
+
+fn why_chain_label(
+    root_id: &atlasctl_types::AtlasId,
+    relationship: &atlasctl_types::EdgeKind,
+    direction: &atlasctl_types::TraceDirection,
+) -> &'static str {
+    if *relationship == atlasctl_types::EdgeKind::Proves {
+        if matches!(*direction, atlasctl_types::TraceDirection::Incoming) {
+            "is proven by"
+        } else if root_id.as_str().starts_with("cmd:") {
+            "proves"
+        } else {
+            match root_id.as_str() {
+                id if id.starts_with("claim:") => "is proven by",
+                _ => "proves",
+            }
+        }
+    } else {
+        match direction {
+            atlasctl_types::TraceDirection::Incoming => "is supported by",
+            atlasctl_types::TraceDirection::Outgoing => "is exercised by",
+            atlasctl_types::TraceDirection::Both => "relates to",
+        }
+    }
 }
 
 fn render_node(node: &AtlasNode, out: &mut String) {

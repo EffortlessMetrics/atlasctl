@@ -29,6 +29,26 @@ expression: json
     "chain": [
       {
         "node": {
+          "id": "req:example",
+          "kind": "requirement",
+          "role": "behavior",
+          "title": "Example requirement",
+          "summary": null,
+          "owns": [],
+          "touches": [],
+          "attrs": {},
+          "provenance": {
+            "source": "atlas/example.atlas.yaml",
+            "line": null,
+            "column": null,
+            "fragment": null
+          }
+        },
+        "relationship": "proves",
+        "direction": "outgoing"
+      },
+      {
+        "node": {
           "id": "cmd:ci-fast",
           "kind": "command",
           "role": "command",
