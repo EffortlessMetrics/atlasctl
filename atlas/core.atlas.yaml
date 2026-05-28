@@ -28,6 +28,9 @@ nodes:
     kind: spec
     title: Proof-topology stack spec
     summary: Deterministic source-of-truth compiler behavior and deterministic impact review surfaces.
+    touches:
+      - schemas/*.json
+      - docs/artifact-protocol.md
 
   - id: goal:ship-proof-topology-stack
     kind: goal
@@ -79,6 +82,18 @@ nodes:
     kind: scenario
     title: Full release verification
     summary: The ci-full task ensures all repo standards are met before release.
+    touches:
+      - atlas/core.atlas.yaml
+      - AGENTS.md
+      - README.md
+      - Cargo.toml
+      - Cargo.lock
+      - crates/atlasctl-*/**
+      - docs/**/*.md
+      - docs/handoffs/*.md
+      - schemas/*.json
+      - .codex/**
+      - xtask/**
 
 edges:
   - from: scen:build-emits-canonical-atlas
