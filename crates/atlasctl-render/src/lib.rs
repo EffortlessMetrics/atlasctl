@@ -5,6 +5,7 @@ use atlasctl_types::{
     AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactEnvelope, ImpactResponse, NodeKind,
     RenderFormat, WhyEnvelope, WhyResponse,
 };
+use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
 pub struct AtlasRenderer;
@@ -212,6 +213,27 @@ fn render_review_packet(response: &ImpactResponse) -> String {
     } else {
         for path in &response.changed_paths {
             out.push_str(&format!("- `{}`\n", path.path));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## 👤 Owners\n\n");
+    let mut owners = BTreeSet::new();
+    for path in &response.changed_paths {
+        for owner in &path.owners {
+            owners.insert(owner);
+        }
+    }
+    for hit in &response.impacted {
+        for owner in &hit.owners {
+            owners.insert(owner);
+        }
+    }
+    if owners.is_empty() {
+        out.push_str("_No owners linked to current impact._\n\n");
+    } else {
+        for owner in owners {
+            out.push_str(&format!("- {owner}\n"));
         }
         out.push('\n');
     }

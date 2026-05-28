@@ -1279,3 +1279,175 @@ fn test_multiple_formats_build() {
         output_dir
     );
 }
+
+#[test]
+fn test_review_packet_next_actions_include_scope_warnings() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "schemas/atlas.schema.json .github/workflows/ci.yml",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "schema change is not linked to a protocol spec/proposal/doc artifact",
+        ))
+        .stdout(predicate::str::contains(
+            "link the changed schema to a protocol spec or proposal in atlas metadata",
+        ))
+        .stdout(predicate::str::contains(
+            "add or update the impacted `policy_ledger` node for workflow changes",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_alias_includes_scope_next_actions() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "schemas/atlas.schema.json .github/workflows/ci.yml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "schema change is not linked to a protocol spec/proposal/doc artifact",
+        ))
+        .stdout(predicate::str::contains(
+            "link the changed schema to a protocol spec or proposal in atlas metadata",
+        ))
+        .stdout(predicate::str::contains(
+            "add or update the impacted `policy_ledger` node for workflow changes",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_includes_owners_section() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains(
+            "_No owners linked to current impact._",
+        ));
+}
+
+#[test]
+fn test_review_packet_uses_codeowners_for_owners_section() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let codeowners = temp_dir.path().join("CODEOWNERS");
+    fs::write(&codeowners, "crates/engine/src/lib.rs @engine-team\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("- @engine-team"));
+}
+
+#[test]
+fn test_review_packet_alias_next_actions_include_scope_mix_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs docs/adr/0001-example.md",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "path set mixes documentation and implementation files",
+        ))
+        .stdout(predicate::str::contains(
+            "split the review scope to avoid docs/implementation mix in one change",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_next_actions_include_uncovered_paths_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "changed paths are not covered by any known ownership/touches selector",
+        ))
+        .stdout(predicate::str::contains(
+            "add `owns` or `touches` selectors for the uncovered paths",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_uses_codeowners_for_uncovered_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let codeowners = temp_dir.path().join("CODEOWNERS");
+    fs::write(&codeowners, "unknown/file.txt @reviewer\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("- @reviewer"))
+        .stdout(predicate::str::contains("Scope Warnings"));
+}

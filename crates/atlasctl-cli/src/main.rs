@@ -819,6 +819,7 @@ fn impact_source(
                 .into_iter()
                 .map(|p| ChangedPath {
                     path: RepoRelativePath::new(p),
+                    owners: Vec::new(),
                 })
                 .collect(),
         )

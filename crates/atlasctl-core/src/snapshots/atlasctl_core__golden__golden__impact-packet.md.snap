@@ -1,6 +1,5 @@
 ---
 source: crates/atlasctl-core/src/lib.rs
-assertion_line: 3207
 expression: packet
 ---
 # 📦 Atlas Review Packet
@@ -10,6 +9,10 @@ This packet summarizes what changed, what surface is impacted, and what proof ev
 ## 📂 Changed Paths
 
 - `crates/engine/src/lib.rs`
+
+## 👤 Owners
+
+_No owners linked to current impact._
 
 ## 🧭 Impacted Truth Surface
 

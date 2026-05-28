@@ -151,7 +151,7 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
 
     pub fn impacted(&self, options: &ImpactOptions) -> Result<ImpactOutcome, AppError> {
         let graph = self.compile(&options.compile)?;
-        let paths = match &options.request {
+        let mut paths = match &options.request {
             ImpactSource::Paths(paths) => paths.clone(),
             ImpactSource::Diff { base, head } => {
                 self.diff
@@ -163,6 +163,12 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
         let owners = self
             .owners
             .owners(&options.compile.repo_root, &repo_paths)?;
+
+        for changed in &mut paths {
+            if let Some(found) = owners.get(&changed.path) {
+                changed.owners = found.clone();
+            }
+        }
 
         let response = impacted_graph(&graph, &ImpactRequest { paths, owners });
         let (has_uncovered_warning, has_uncovered_error) =

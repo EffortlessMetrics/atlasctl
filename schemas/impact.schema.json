@@ -114,6 +114,13 @@
         "path"
       ],
       "properties": {
+        "owners": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "path": {
           "type": "string"
         }

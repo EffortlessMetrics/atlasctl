@@ -2,10 +2,10 @@
 
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId,
-    AtlasMetrics, AtlasNode, DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest,
-    ImpactResponse, NodeKind, NodeMatch, NodeRole, ProfileSettings, QueryRequest, QueryResponse,
-    Severity, SourceLocation, TraceDirection, TraceEdge, TraceRequest, TraceResponse,
-    ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
+    AtlasMetrics, AtlasNode, ChangedPath, DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit,
+    ImpactRequest, ImpactResponse, NodeKind, NodeMatch, NodeRole, ProfileSettings, QueryRequest,
+    QueryResponse, RepoRelativePath, Severity, SourceLocation, TraceDirection, TraceEdge,
+    TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -582,13 +582,27 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
 
 pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResponse {
     let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
-    let mut uncovered = Vec::new();
+    let mut uncovered = BTreeMap::<RepoRelativePath, Vec<String>>::new();
     let mut impacted_ids = BTreeSet::<AtlasId>::new();
-    let mut changed_paths = request.paths.clone();
-    changed_paths.sort_by(|left, right| left.path.cmp(&right.path));
-    changed_paths.dedup_by(|left, right| left.path == right.path);
+    let mut changed_paths = BTreeMap::<RepoRelativePath, Vec<String>>::new();
 
     for changed in &request.paths {
+        let owners_for_changed = if !changed.owners.is_empty() {
+            changed.owners.clone()
+        } else {
+            request
+                .owners
+                .get(&changed.path)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let changed_entry = changed_paths.entry(changed.path.clone()).or_default();
+        for owner in owners_for_changed {
+            if !changed_entry.contains(&owner) {
+                changed_entry.push(owner);
+            }
+        }
+
         let mut found_any = false;
         for node in &graph.nodes {
             for selector in node.all_paths() {
@@ -601,10 +615,10 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                 {
                     found_any = true;
 
-                    let mut hit_owners = Vec::new();
-                    if let Some(owners) = request.owners.get(&changed.path) {
-                        hit_owners.extend(owners.clone());
-                    }
+                    let hit_owners = changed_paths
+                        .get(&changed.path)
+                        .cloned()
+                        .unwrap_or_default();
 
                     let entry = impacted
                         .entry(node.id.clone())
@@ -626,11 +640,38 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             }
         }
         if !found_any {
-            uncovered.push(changed.clone());
+            let entry = uncovered.entry(changed.path.clone()).or_default();
+            for owner in changed_paths
+                .get(&changed.path)
+                .cloned()
+                .unwrap_or_default()
+            {
+                if !entry.contains(&owner) {
+                    entry.push(owner);
+                }
+            }
         }
     }
+
+    let mut changed_paths = changed_paths
+        .into_iter()
+        .map(|(path, mut owners): (RepoRelativePath, Vec<String>)| {
+            owners.sort();
+            owners.dedup();
+            ChangedPath { path, owners }
+        })
+        .collect::<Vec<_>>();
+    changed_paths.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let mut uncovered = uncovered
+        .into_iter()
+        .map(|(path, mut owners): (RepoRelativePath, Vec<String>)| {
+            owners.sort();
+            owners.dedup();
+            ChangedPath { path, owners }
+        })
+        .collect::<Vec<_>>();
     uncovered.sort_by(|left, right| left.path.cmp(&right.path));
-    uncovered.dedup_by(|left, right| left.path == right.path);
 
     // Graph expansion: 1 step from direct hits
     let direct_hits: Vec<_> = impacted.keys().cloned().collect();
@@ -746,11 +787,20 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             _ => None,
         })
         .collect::<Vec<_>>();
+    suggested_fixes.extend(
+        scope_warnings
+            .iter()
+            .filter_map(|warning| suggest_fix_for_scope_warning(warning).map(str::to_string)),
+    );
     suggested_fixes.sort();
     suggested_fixes.dedup();
     maybe_sort_and_dedup_scope_warnings(&mut scope_warnings);
 
     let mut impacted_list: Vec<_> = impacted.into_values().collect();
+    for hit in impacted_list.iter_mut() {
+        hit.owners.sort();
+        hit.owners.dedup();
+    }
     impacted_list.sort_by(|a, b| a.node.id.cmp(&b.node.id));
 
     ImpactResponse {
@@ -869,6 +919,32 @@ fn compute_scope_warnings(
 fn maybe_sort_and_dedup_scope_warnings(scope_warnings: &mut Vec<String>) {
     scope_warnings.sort();
     scope_warnings.dedup();
+}
+
+fn suggest_fix_for_scope_warning(warning: &str) -> Option<&'static str> {
+    if warning.contains("changed paths are not covered by any known ownership/touches selector") {
+        Some("add `owns` or `touches` selectors for the uncovered paths")
+    } else if warning.contains("active-goal metadata is not complete") {
+        Some("repair `.codex/goals/active.toml` so all active-goal references are valid and ready")
+    } else if warning.contains("documentation-only paths affect non-document surfaces") {
+        Some(
+            "split docs-only work from non-document changes or add implementation-path metadata for touched docs",
+        )
+    } else if warning.contains("path set mixes documentation and implementation files") {
+        Some("split the review scope to avoid docs/implementation mix in one change")
+    } else if warning.contains("workflow file changed but no policy ledger node was impacted") {
+        Some("add or update the impacted `policy_ledger` node for workflow changes")
+    } else if warning
+        .contains("schema change is not linked to a protocol spec/proposal/doc artifact")
+    {
+        Some("link the changed schema to a protocol spec or proposal in atlas metadata")
+    } else if warning.contains("support tier claim changed but no proof command was impacted") {
+        Some("link the changed support-tier claim to a proof command via a `proves` edge")
+    } else if warning.contains("generated artifact changed without an impacted artifact node") {
+        Some("add the generated artifact node and `emits` edge for this output path")
+    } else {
+        None
+    }
 }
 
 fn is_documentation_path(path: &str) -> bool {
@@ -2220,6 +2296,7 @@ mod tests {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "docs/guides/onboarding.md".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2257,6 +2334,7 @@ mod tests {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: ".github/workflows/ci.yml".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2288,6 +2366,7 @@ mod tests {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "schemas/atlas.schema.json".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2323,6 +2402,7 @@ mod tests {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "docs/status/SUPPORT_TIERS.md".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2354,6 +2434,7 @@ mod tests {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "target/debug/build-output.json".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2365,6 +2446,97 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("generated artifact changed"))
         );
+    }
+
+    #[test]
+    fn scope_warning_suggested_fixes_are_included() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: ".github/workflows/ci.yml".into(),
+                    owners: vec![],
+                },
+                ChangedPath {
+                    path: "schemas/atlas.schema.json".into(),
+                    owners: vec![],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("workflow file changed but no policy ledger"))
+        );
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("schema change is not linked to a protocol spec"))
+        );
+        assert!(
+            response
+                .suggested_fixes
+                .iter()
+                .any(|fix| fix.contains("workflow changes"))
+        );
+        assert!(
+            response
+                .suggested_fixes
+                .iter()
+                .any(|fix| fix.contains("link the changed schema"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_suggests_covering_uncovered_paths() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/atlasctl-core/src/new-module.rs".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("changed paths are not covered"))
+        );
+        assert!(response.suggested_fixes.iter().any(|fix| {
+            fix.contains("add `owns` or `touches` selectors for the uncovered paths")
+        }));
     }
 
     #[test]
@@ -2389,6 +2561,7 @@ mod tests {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "docs/implementation-plan.md".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2418,12 +2591,15 @@ mod tests {
             paths: vec![
                 ChangedPath {
                     path: "zeta/path.txt".into(),
+                    owners: vec![],
                 },
                 ChangedPath {
                     path: "alpha/path.txt".into(),
+                    owners: vec![],
                 },
                 ChangedPath {
                     path: "alpha/path.txt".into(),
+                    owners: vec![],
                 },
             ],
             owners: BTreeMap::new(),
@@ -2446,6 +2622,53 @@ mod tests {
                 .map(|path| path.path.as_str())
                 .collect::<Vec<_>>(),
             vec!["alpha/path.txt", "zeta/path.txt"]
+        );
+    }
+
+    #[test]
+    fn impacted_analysis_merges_duplicate_path_owners() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec!["@alpha".to_string()],
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec!["@bravo".to_string()],
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec!["@alpha".to_string()],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+
+        let response = impacted_graph(&graph, &request);
+
+        assert_eq!(response.changed_paths.len(), 1);
+        assert_eq!(
+            response.changed_paths[0].owners,
+            vec!["@alpha".to_string(), "@bravo".to_string()]
+        );
+        assert_eq!(response.uncovered.len(), 1);
+        assert_eq!(
+            response.uncovered[0].owners,
+            vec!["@alpha".to_string(), "@bravo".to_string()]
         );
     }
 
@@ -3295,7 +3518,7 @@ mod golden {
     use atlasctl_fixtures::repo;
     use atlasctl_render::AtlasRenderer;
     use atlasctl_types::{ChangedPath, RenderFormat, WhyRequest, WhySubject};
-    use serde_json::Value;
+    use serde_json::{Value, json};
 
     const FIXTURES: &[&str] = &[
         "valid-minimal",
@@ -3381,6 +3604,7 @@ mod golden {
             let request = ImpactRequest {
                 paths: vec![ChangedPath {
                     path: "crates/engine/src/lib.rs".into(),
+                    owners: vec![],
                 }],
                 owners: BTreeMap::new(),
             };
@@ -3421,6 +3645,7 @@ mod golden {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "crates/engine".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -3447,6 +3672,7 @@ mod golden {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "unknown/file.txt".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -3567,6 +3793,7 @@ mod golden {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "crates/engine/src/lib.rs".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -3602,6 +3829,38 @@ mod golden {
             .render_impact(&response, RenderFormat::ReviewPacket)
             .unwrap();
         insta::assert_snapshot!("golden/impact-packet.md", packet);
+    }
+
+    #[test]
+    fn impact_json_includes_changed_path_owners() {
+        let renderer = AtlasRenderer;
+        let graph = build_atlas("valid-minimal");
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/engine/src/lib.rs".into(),
+                owners: vec!["@ownerscope".to_string()],
+            }],
+            owners: BTreeMap::new(),
+        };
+
+        let json = render_impact_json(&renderer, &graph, &request);
+        let value: Value =
+            serde_json::from_str(&json).expect("impact output should be valid JSON envelope");
+
+        let changed_paths = value
+            .get("payload")
+            .and_then(|payload| payload.get("changed_paths"))
+            .and_then(Value::as_array)
+            .expect("payload.changed_paths should be an array");
+        let first = changed_paths
+            .first()
+            .expect("changed paths should include at least one path");
+
+        assert_eq!(
+            first.get("path").and_then(Value::as_str),
+            Some("crates/engine/src/lib.rs")
+        );
+        assert_eq!(first.get("owners"), Some(&json!(["@ownerscope"])));
     }
 
     fn render_why_json(

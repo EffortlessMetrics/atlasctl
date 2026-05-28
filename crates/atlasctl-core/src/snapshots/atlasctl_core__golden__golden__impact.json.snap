@@ -123,7 +123,8 @@ expression: json
     "uncovered": [],
     "changed_paths": [
       {
-        "path": "crates/engine/src/lib.rs"
+        "path": "crates/engine/src/lib.rs",
+        "owners": []
       }
     ],
     "missing_evidence": [],

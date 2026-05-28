@@ -125,6 +125,7 @@ impl DiffPort for GitDiff {
             .lines()
             .map(|line| atlasctl_types::ChangedPath {
                 path: atlasctl_types::RepoRelativePath::new(line),
+                owners: Vec::new(),
             })
             .collect();
 
