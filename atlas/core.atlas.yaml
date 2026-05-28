@@ -14,6 +14,36 @@ nodes:
     title: Low metadata tax
     summary: Adopting and maintaining the atlas should be low-friction via scaffolding and automation.
 
+  - id: roadmap:v01-proof-topology
+    kind: roadmap
+    title: Proof-topology roadmap
+    summary: Ship a deterministic local proof graph and review workflow across the repository stack.
+
+  - id: proposal:proof-topology-stack
+    kind: proposal
+    title: Proof-topology stack roadmap
+    summary: Introduce source-of-truth nodes, active goals, support checks, and review packets.
+
+  - id: spec:proof-topology-stack
+    kind: spec
+    title: Proof-topology stack spec
+    summary: Deterministic source-of-truth compiler behavior and deterministic impact review surfaces.
+
+  - id: goal:ship-proof-topology-stack
+    kind: goal
+    title: Ship source-of-truth stack lane
+    summary: Establish review-oriented proof topology behavior as the repo's default workflow contract.
+
+  - id: plan:closeout-proof-topology-v0-1
+    kind: plan
+    title: v0.1 proof-topology closeout
+    summary: Finish the source-of-truth stack lane with closeout-ready governance and operational documentation.
+
+  - id: closeout:v0-1-proof-topology
+    kind: closeout
+    title: v0.1 proof-topology closeout
+    summary: Capture final governance, evidence, and next-goal handoff for the lane.
+
   - id: scen:build-emits-canonical-atlas
     kind: scenario
     title: Build emits canonical atlas
@@ -126,3 +156,28 @@ edges:
   - from: scen:full-release-verification
     kind: exercises
     to: crate:atlasctl-fixtures
+
+  - from: roadmap:v01-proof-topology
+    kind: defines
+    to: proposal:proof-topology-stack
+
+  - from: proposal:proof-topology-stack
+    kind: implements
+    to: spec:proof-topology-stack
+
+  - from: goal:ship-proof-topology-stack
+    kind: defines
+    to: plan:closeout-proof-topology-v0-1
+
+  - from: spec:proof-topology-stack
+    kind: requires
+    to: plan:closeout-proof-topology-v0-1
+
+  - from: plan:closeout-proof-topology-v0-1
+    kind: closes
+    to: goal:ship-proof-topology-stack
+
+  - from: scen:full-release-verification
+    kind: proves
+    to: closeout:v0-1-proof-topology
+
