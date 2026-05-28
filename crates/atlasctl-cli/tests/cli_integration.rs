@@ -5,6 +5,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
+use std::process::Command as StdCommand;
 use tempfile::TempDir;
 
 // Helper to get path to a fixture repo
@@ -48,6 +49,110 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git command should execute");
+    assert!(
+        output.status.success(),
+        "git command failed: git {}\\nstdout: {}\\nstderr: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn git_with_config(dir: &Path, args: &[&str]) {
+    let status = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .status()
+        .expect("git command should execute");
+    assert!(
+        status.success(),
+        "git command failed: git {}",
+        args.join(" ")
+    );
+}
+
+fn setup_temp_git_fixture() -> (TempDir, String, String) {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let repo_root = temp_dir.path();
+
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "init",
+        ],
+    );
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "add",
+            ".",
+        ],
+    );
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "commit",
+            "-m",
+            "seed base snapshot",
+        ],
+    );
+    let base = git(repo_root, &["rev-parse", "HEAD"]);
+
+    let engine_file = repo_root.join("crates/engine/src/lib.rs");
+    fs::write(
+        &engine_file,
+        fs::read_to_string(&engine_file).unwrap() + "\n// atlasctl fixture edit\n",
+    )
+    .unwrap();
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "add",
+            "crates/engine/src/lib.rs",
+        ],
+    );
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "commit",
+            "-m",
+            "touch engine source",
+        ],
+    );
+    let head = git(repo_root, &["rev-parse", "HEAD"]);
+
+    (temp_dir, base, head)
 }
 
 // ============================================================================
@@ -696,6 +801,52 @@ fn test_impacted_review_packet() {
         .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
         .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
         .stdout(predicate::str::contains("## ✅ Next Actions"));
+}
+
+#[test]
+fn test_impacted_review_packet_with_base_head() {
+    let (temp_dir, base, head) = setup_temp_git_fixture();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--base",
+            base.as_str(),
+            "--head",
+            head.as_str(),
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
+}
+
+#[test]
+fn test_review_packet_with_base_head() {
+    let (temp_dir, base, head) = setup_temp_git_fixture();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--base",
+            base.as_str(),
+            "--head",
+            head.as_str(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
 }
 
 #[test]
