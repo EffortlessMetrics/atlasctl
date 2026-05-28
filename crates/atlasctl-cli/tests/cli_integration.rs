@@ -562,6 +562,43 @@ fn test_why_by_path() {
 }
 
 #[test]
+fn test_why_by_policy_path() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git"]
+"#;
+    std::fs::write(temp_dir.path().join("atlas.toml"), atlas_config).unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("policy")).unwrap();
+    let policy_file = r#"
+[atlas]
+id = "policy_ledger:cli-policy"
+kind = "policy_ledger"
+title = "CLI policy test"
+summary = "Policy ledger for CLI integration tests."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:docs-check"]
+"#;
+    std::fs::write(temp_dir.path().join("policy/cli-policy.toml"), policy_file).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "policy/cli-policy.toml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Node: policy_ledger:cli-policy"));
+}
+
+#[test]
 fn test_why_markdown_format() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -844,6 +881,46 @@ fn test_impacted_review_packet_with_base_head() {
         .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
         .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
         .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
+}
+
+#[test]
+fn test_impacted_review_packet_includes_policy_ledger_from_policy_path() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git"]
+"#;
+    std::fs::write(temp_dir.path().join("atlas.toml"), atlas_config).unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("policy")).unwrap();
+    let policy_file = r#"
+ [atlas]
+id = "policy_ledger:cli-policy"
+kind = "policy_ledger"
+title = "CLI policy test"
+summary = "Policy ledger for CLI integration tests."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:docs-check"]
+"#;
+    std::fs::write(temp_dir.path().join("policy/cli-policy.toml"), policy_file).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "policy/cli-policy.toml",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("policy_ledger:cli-policy"));
 }
 
 #[test]
