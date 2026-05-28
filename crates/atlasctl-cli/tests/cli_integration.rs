@@ -721,6 +721,25 @@ fn test_impacted_by_paths() {
 }
 
 #[test]
+fn test_impacted_by_multiple_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "atlas/example.atlas.yaml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Impact Analysis:"));
+}
+
+#[test]
 fn test_impacted_uncovered() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -861,6 +880,27 @@ fn test_review_packet_command() {
             temp_dir.path().to_str().unwrap(),
             "--paths",
             "crates/engine",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"));
+}
+
+#[test]
+fn test_review_packet_multiple_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "atlas/example.atlas.yaml",
         ])
         .assert()
         .success()

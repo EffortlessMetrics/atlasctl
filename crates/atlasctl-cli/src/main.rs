@@ -108,7 +108,7 @@ struct ImpactedArgs {
     base: Option<String>,
     #[arg(long)]
     head: Option<String>,
-    #[arg(long, value_delimiter = ' ')]
+    #[arg(long, num_args = 1.., value_delimiter = ' ')]
     paths: Option<Vec<String>>,
     #[arg(long, value_enum, default_value_t = OutputArg::Text)]
     format: OutputArg,
@@ -122,7 +122,7 @@ struct ReviewPacketArgs {
     base: Option<String>,
     #[arg(long)]
     head: Option<String>,
-    #[arg(long, value_delimiter = ' ')]
+    #[arg(long, num_args = 1.., value_delimiter = ' ')]
     paths: Option<Vec<String>>,
 }
 
