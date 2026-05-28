@@ -948,11 +948,170 @@ fn print_why(outcome: &atlasctl_app::WhyOutcome) {
 
 fn scaffold_content_for_gap(diagnostic: &str) -> String {
     let normalized = normalize_slug(diagnostic);
-    let id = format!("scen:gap-{normalized}");
     let target = scaffold_gap_target(diagnostic);
 
-    format!(
-        r#"nodes:
+    match diagnostic {
+        "claim_missing_proof_command" => format!(
+            r#"nodes:
+  - id: support_tier:gap-{normalized}
+    kind: support_tier
+    title: Fill support-tier proof gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "docs/**/*.md"
+edges:
+  - from: support_tier:gap-{normalized}
+    kind: proves
+    to: cmd:todo
+  - from: support_tier:gap-{normalized}
+    kind: governs
+    to: {target}
+"#
+        ),
+        "policy_ledger_missing_proof_command" => format!(
+            r#"nodes:
+  - id: policy_ledger:gap-{normalized}
+    kind: policy_ledger
+    title: Fill policy proof gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    owns:
+      - ".github/workflows/**/*.yml"
+edges:
+  - from: policy_ledger:gap-{normalized}
+    kind: proves
+    to: cmd:todo
+  - from: policy_ledger:gap-{normalized}
+    kind: governs
+    to: {target}
+"#
+        ),
+        "closeout_missing" => format!(
+            r#"nodes:
+  - id: closeout:gap-{normalized}
+    kind: closeout
+    title: Fill closeout gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+edges:
+  - from: closeout:gap-{normalized}
+    kind: closes
+    to: {target}
+"#
+        ),
+        "artifact_missing_producer" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Fill artifact-producer gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "target/**/*"
+    owns:
+      - "TODO/path"
+edges:
+  - from: scen:gap-{normalized}
+    kind: emits
+    to: {target}
+  - from: scen:gap-{normalized}
+    kind: exercises
+    to: crate:todo
+"#
+        ),
+        "active_goal_work_item_missing_proof" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Prove active-goal work item
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "plans/**/*.md"
+    owns:
+      - "TODO/path"
+edges:
+  - from: scen:gap-{normalized}
+    kind: proves
+    to: {target}
+  - from: scen:gap-{normalized}
+    kind: runs_with
+    to: cmd:todo
+"#
+        ),
+        "scenario_missing_command" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Fill scenario command gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "tests/**/*.rs"
+edges:
+  - from: scen:gap-{normalized}
+    kind: runs_with
+    to: cmd:todo
+"#
+        ),
+        "scenario_missing_crate" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Fill scenario crate gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "crates/**/*"
+edges:
+  - from: scen:gap-{normalized}
+    kind: exercises
+    to: crate:todo
+"#
+        ),
+        "uncovered_crate" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Cover uncovered crate
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "crates/**/*"
+    owns:
+      - "TODO/path"
+edges:
+  - from: scen:gap-{normalized}
+    kind: proves
+    to: req:todo
+  - from: scen:gap-{normalized}
+    kind: exercises
+    to: crate:todo
+"#
+        ),
+        "requirement_not_proven" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Prove requirement
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "tests/**/*.rs"
+edges:
+  - from: scen:gap-{normalized}
+    kind: proves
+    to: {target}
+  - from: scen:gap-{normalized}
+    kind: runs_with
+    to: cmd:todo
+"#
+        ),
+        _ => {
+            let id = format!("scen:gap-{normalized}");
+            format!(
+                r#"nodes:
   - id: {id}
     kind: scenario
     title: Fill gap from {diagnostic}
@@ -970,7 +1129,9 @@ edges:
     kind: runs_with
     to: cmd:todo
 "#
-    )
+            )
+        }
+    }
 }
 
 fn scaffold_gap_target(diagnostic: &str) -> &'static str {
@@ -984,6 +1145,7 @@ fn scaffold_gap_target(diagnostic: &str) -> &'static str {
         "scenario_missing_command" => "scen:todo",
         "scenario_missing_crate" => "crate:todo",
         "uncovered_crate" => "crate:todo",
+        "closeout_missing" => "closeout:todo",
         _ => "req:todo",
     }
 }

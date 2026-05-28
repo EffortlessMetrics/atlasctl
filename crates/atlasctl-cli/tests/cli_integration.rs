@@ -1043,6 +1043,130 @@ fn test_scaffold_gap() {
     assert!(content.contains("req:todo"));
 }
 
+#[test]
+fn test_scaffold_support_tier() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "support-tier",
+            "release-support",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded support-tier"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-support.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: support_tier"));
+    assert!(content.contains("summary: |"));
+}
+
+#[test]
+fn test_scaffold_policy_ledger() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "policy-ledger",
+            "release-review",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded policy-ledger"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-review.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: policy_ledger"));
+    assert!(content.contains("summary: |"));
+}
+
+#[test]
+fn test_scaffold_closeout() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "closeout",
+            "release-closeout",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded closeout"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-closeout.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: closeout"));
+    assert!(content.contains("id: closeout:release-closeout"));
+}
+
+#[test]
+fn test_scaffold_gap_claim_missing_proof_command() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "claim_missing_proof_command",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded gap scaffold"));
+
+    let scaffold_file = temp_dir
+        .path()
+        .join("atlas/gap-claim_missing_proof_command.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: support_tier"));
+    assert!(content.contains("to: cmd:todo"));
+}
+
+#[test]
+fn test_scaffold_gap_policy_ledger_missing_proof_command() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "policy_ledger_missing_proof_command",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded gap scaffold"));
+
+    let scaffold_file = temp_dir
+        .path()
+        .join("atlas/gap-policy_ledger_missing_proof_command.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: policy_ledger"));
+    assert!(content.contains("to: cmd:todo"));
+}
+
 // ============================================================================
 // ERROR HANDLING TESTS
 // ============================================================================
