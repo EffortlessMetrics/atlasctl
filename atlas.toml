@@ -1,7 +1,7 @@
 schema_version = 1
 
 [discovery]
-roots = ["atlas", "docs", "README.md", "AGENTS.md", "TESTING.md", "RELEASE.md"]
+roots = ["atlas", "docs", "policy", "README.md", "AGENTS.md", "TESTING.md", "RELEASE.md"]
 ignore = ["target", ".git", "node_modules"]
 
 [profiles.default]

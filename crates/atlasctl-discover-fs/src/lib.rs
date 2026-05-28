@@ -1545,6 +1545,57 @@ proves = ["cmd:policy-audit"]
     }
 
     #[test]
+    fn discover_includes_policy_toml_via_default_roots() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-discovery-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy")).unwrap();
+
+        let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git", "node_modules"]
+"#;
+        std::fs::write(root.join("atlas.toml"), atlas_config).unwrap();
+
+        let policy = r#"
+[atlas]
+id = "policy_ledger:discovery-test"
+kind = "policy_ledger"
+title = "Discovery test policy"
+summary = "Ensures policy files are discovered."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:policy-check"]
+"#;
+        std::fs::write(root.join("policy/test-policy.toml"), policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let discovery = FsDiscovery;
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed for policy fixture");
+
+        assert!(
+            discovered
+                .nodes
+                .iter()
+                .any(|node| node.id.as_str() == "policy_ledger:discovery-test"),
+            "policy ledger nodes under policy/ should be discovered"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn parses_source_truth_frontmatter_relations() {
         let mut root = std::env::temp_dir();
         root.push(format!("atlasctl-discover-fs-{}", std::process::id()));
