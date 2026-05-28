@@ -33,7 +33,7 @@ atlasctl review-packet --base main --head HEAD
 
 # Or for explicit path-focused review packets
 atlasctl review-packet --paths crates/engine src/main.rs
-``` 
+```
 
 ### 3. Semantic Navigation with `why`
 Project a short, readable proof chain for any node or path to understand its purpose and verification.

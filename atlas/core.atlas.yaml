@@ -195,4 +195,3 @@ edges:
   - from: scen:full-release-verification
     kind: proves
     to: closeout:v0-1-proof-topology
-
