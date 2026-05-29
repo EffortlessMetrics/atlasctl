@@ -1,18 +1,79 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::Severity;
 use atlasctl_core::{compile_atlas, impacted_graph, query_graph, trace_graph, why_graph};
-use atlasctl_ports::{
-    DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
-    RenderError, RenderPort,
-};
 use atlasctl_types::{
-    AtlasGraph, ChangedPath, ImpactRequest, ImpactResponse, QueryRequest, QueryResponse,
-    RenderFormat, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse,
+    AtlasGraph, ChangedPath, DiscoveredRepo, ImpactRequest, ImpactResponse, QueryRequest,
+    QueryResponse, RenderFormat, RepoRelativePath, Severity, TraceRequest, TraceResponse,
+    ValidationProfile, WhyRequest, WhyResponse,
 };
 use camino::Utf8PathBuf;
 use std::collections::BTreeMap;
 use thiserror::Error;
+
+#[derive(Debug, Clone)]
+pub struct DiscoverRequest {
+    pub repo_root: Utf8PathBuf,
+    pub config_path: Option<Utf8PathBuf>,
+}
+
+pub trait DiscoveryPort {
+    fn discover(&self, request: &DiscoverRequest) -> Result<DiscoveredRepo, DiscoveryError>;
+}
+
+pub trait DiffPort {
+    fn changed_paths(
+        &self,
+        repo_root: &camino::Utf8Path,
+        base: &str,
+        head: &str,
+    ) -> Result<Vec<ChangedPath>, DiffError>;
+}
+
+pub trait OwnersPort {
+    fn owners(
+        &self,
+        repo_root: &camino::Utf8Path,
+        paths: &[RepoRelativePath],
+    ) -> Result<std::collections::BTreeMap<RepoRelativePath, Vec<String>>, OwnersError>;
+}
+
+pub trait RenderPort {
+    fn render(&self, graph: &AtlasGraph, format: RenderFormat) -> Result<String, RenderError>;
+    fn render_why(
+        &self,
+        response: &WhyResponse,
+        format: RenderFormat,
+    ) -> Result<String, RenderError>;
+    fn render_impact(
+        &self,
+        response: &ImpactResponse,
+        format: RenderFormat,
+    ) -> Result<String, RenderError>;
+}
+
+#[derive(Debug, Error)]
+pub enum DiscoveryError {
+    #[error("{0}")]
+    Message(String),
+}
+
+#[derive(Debug, Error)]
+pub enum RenderError {
+    #[error("{0}")]
+    Message(String),
+}
+
+#[derive(Debug, Error)]
+pub enum DiffError {
+    #[error("{0}")]
+    Message(String),
+}
+
+#[derive(Debug, Error)]
+pub enum OwnersError {
+    #[error("{0}")]
+    Message(String),
+}
 
 pub struct AtlasService<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> {
     pub discovery: D,
@@ -90,7 +151,7 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
 
     pub fn impacted(&self, options: &ImpactOptions) -> Result<ImpactOutcome, AppError> {
         let graph = self.compile(&options.compile)?;
-        let paths = match &options.request {
+        let mut paths = match &options.request {
             ImpactSource::Paths(paths) => paths.clone(),
             ImpactSource::Diff { base, head } => {
                 self.diff
@@ -103,9 +164,22 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
             .owners
             .owners(&options.compile.repo_root, &repo_paths)?;
 
-        let response = impacted_graph(&graph, &ImpactRequest { paths, owners });
+        for changed in &mut paths {
+            if let Some(found) = owners.get(&changed.path) {
+                changed.owners = found.clone();
+            }
+        }
 
-        Ok(ImpactOutcome { graph, response })
+        let response = impacted_graph(&graph, &ImpactRequest { paths, owners });
+        let (has_uncovered_warning, has_uncovered_error) =
+            coverage_severity(options.compile.profile, !response.uncovered.is_empty());
+
+        Ok(ImpactOutcome {
+            graph,
+            response,
+            has_uncovered_warning,
+            has_uncovered_error,
+        })
     }
 
     fn compile(&self, options: &CompileOptions) -> Result<AtlasGraph, AppError> {
@@ -183,6 +257,19 @@ pub struct ImpactOptions {
 pub struct ImpactOutcome {
     pub graph: AtlasGraph,
     pub response: ImpactResponse,
+    pub has_uncovered_warning: bool,
+    pub has_uncovered_error: bool,
+}
+
+fn coverage_severity(profile: ValidationProfile, has_uncovered: bool) -> (bool, bool) {
+    if !has_uncovered {
+        return (false, false);
+    }
+
+    match profile {
+        ValidationProfile::Strict => (false, true),
+        ValidationProfile::Default | ValidationProfile::Ci => (true, false),
+    }
 }
 
 #[derive(Debug, Error)]

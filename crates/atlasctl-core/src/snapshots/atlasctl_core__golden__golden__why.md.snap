@@ -14,6 +14,7 @@ expression: md
 
 ## Proof Chain
 
+- `scen:example-build` proves `req:example` (via `proves`)
 - `scen:example-build` is exercised by `cmd:ci-fast` (via `runs_with`)
 - `scen:example-build` is exercised by `artifact:example-report` (via `emits`)
 - `scen:example-build` is exercised by `crate:engine` (via `exercises`)

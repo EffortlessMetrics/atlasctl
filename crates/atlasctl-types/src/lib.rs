@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::{DiagnosticCode, Severity};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -10,6 +9,168 @@ use std::str::FromStr;
 use thiserror::Error;
 
 pub const ATLAS_SCHEMA_VERSION: u32 = 1;
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    Error,
+    Warning,
+    Info,
+}
+
+impl Severity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Info => "info",
+        }
+    }
+}
+
+impl fmt::Display for Severity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str((*self).as_str())
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticCode {
+    DuplicateId,
+    BrokenReference,
+    MalformedFragment,
+    InvalidId,
+    InvalidEdgeEndpoint,
+    InvalidPath,
+    UnknownNodeKind,
+    UnknownEdgeKind,
+    ScenarioMissingCommand,
+    ScenarioMissingCrate,
+    ArtifactMissingProducer,
+    CommandReferencedButUndeclared,
+    InvalidConfig,
+    DiscoveryFailure,
+    QueryRootMissing,
+    DeadSelector,
+    OrphanNode,
+    StaleCommand,
+    BrokenDocLink,
+    DuplicateOwnership,
+    EmptyFragment,
+    RequirementNotProven,
+    UncoveredCrate,
+    ActiveGoalMissingPlan,
+    ActiveGoalMissingReadyWorkItems,
+    ActiveGoalWorkItemMissingProof,
+    ClaimMissingProofCommand,
+    PolicyLedgerMissingProofCommand,
+}
+
+impl DiagnosticCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DuplicateId => "duplicate_id",
+            Self::BrokenReference => "broken_reference",
+            Self::MalformedFragment => "malformed_fragment",
+            Self::InvalidId => "invalid_id",
+            Self::InvalidEdgeEndpoint => "invalid_edge_endpoint",
+            Self::InvalidPath => "invalid_path",
+            Self::UnknownNodeKind => "unknown_node_kind",
+            Self::UnknownEdgeKind => "unknown_edge_kind",
+            Self::ScenarioMissingCommand => "scenario_missing_command",
+            Self::ScenarioMissingCrate => "scenario_missing_crate",
+            Self::ArtifactMissingProducer => "artifact_missing_producer",
+            Self::CommandReferencedButUndeclared => "command_referenced_but_undeclared",
+            Self::InvalidConfig => "invalid_config",
+            Self::DiscoveryFailure => "discovery_failure",
+            Self::QueryRootMissing => "query_root_missing",
+            Self::DeadSelector => "dead_selector",
+            Self::OrphanNode => "orphan_node",
+            Self::StaleCommand => "stale_command",
+            Self::BrokenDocLink => "broken_doc_link",
+            Self::DuplicateOwnership => "duplicate_ownership",
+            Self::EmptyFragment => "empty_fragment",
+            Self::RequirementNotProven => "requirement_not_proven",
+            Self::UncoveredCrate => "uncovered_crate",
+            Self::ActiveGoalMissingPlan => "active_goal_missing_plan",
+            Self::ActiveGoalMissingReadyWorkItems => "active_goal_missing_ready_work_items",
+            Self::ActiveGoalWorkItemMissingProof => "active_goal_work_item_missing_proof",
+            Self::ClaimMissingProofCommand => "claim_missing_proof_command",
+            Self::PolicyLedgerMissingProofCommand => "policy_ledger_missing_proof_command",
+        }
+    }
+
+    pub fn default_message(self) -> &'static str {
+        match self {
+            Self::DuplicateId => "duplicate atlas id",
+            Self::BrokenReference => "broken graph reference",
+            Self::MalformedFragment => "malformed atlas fragment",
+            Self::InvalidId => "invalid atlas id",
+            Self::InvalidEdgeEndpoint => "invalid edge endpoint kinds",
+            Self::InvalidPath => "invalid source path",
+            Self::UnknownNodeKind => "unknown node kind",
+            Self::UnknownEdgeKind => "unknown edge kind",
+            Self::ScenarioMissingCommand => "scenario is missing a proving command",
+            Self::ScenarioMissingCrate => "scenario is missing an exercised crate",
+            Self::ArtifactMissingProducer => "artifact is missing a producer edge",
+            Self::CommandReferencedButUndeclared => "command was referenced but not declared",
+            Self::InvalidConfig => "invalid atlas configuration",
+            Self::DiscoveryFailure => "discovery failed",
+            Self::QueryRootMissing => "requested trace root is missing",
+            Self::DeadSelector => "path selector matches no files",
+            Self::OrphanNode => "node has no relationships",
+            Self::StaleCommand => "command is not exercised by any scenario",
+            Self::BrokenDocLink => "documentation link is broken",
+            Self::DuplicateOwnership => "path is claimed by multiple nodes",
+            Self::EmptyFragment => "fragment file contains no atlas metadata",
+            Self::RequirementNotProven => "requirement is not proven by any scenario",
+            Self::UncoveredCrate => "crate is not exercised by any scenario",
+            Self::ActiveGoalMissingPlan => "active goal references a missing plan",
+            Self::ActiveGoalMissingReadyWorkItems => "active goal has no ready work items",
+            Self::ActiveGoalWorkItemMissingProof => "active goal work item has no proof command",
+            Self::ClaimMissingProofCommand => "claim is missing a proof command",
+            Self::PolicyLedgerMissingProofCommand => "policy_ledger is missing a proof command",
+        }
+    }
+
+    pub fn default_severity(self) -> Severity {
+        match self {
+            Self::InvalidPath => Severity::Warning,
+            Self::ArtifactMissingProducer => Severity::Warning,
+            Self::DeadSelector => Severity::Warning,
+            Self::OrphanNode => Severity::Warning,
+            Self::StaleCommand => Severity::Warning,
+            Self::EmptyFragment => Severity::Info,
+            Self::RequirementNotProven => Severity::Warning,
+            Self::UncoveredCrate => Severity::Warning,
+            Self::ActiveGoalMissingReadyWorkItems => Severity::Warning,
+            Self::ActiveGoalWorkItemMissingProof => Severity::Warning,
+            Self::ClaimMissingProofCommand => Severity::Warning,
+            Self::PolicyLedgerMissingProofCommand => Severity::Warning,
+            _ => Severity::Error,
+        }
+    }
+}
+
+impl fmt::Display for DiagnosticCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str((*self).as_str())
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitCode {
+    Ok = 0,
+    Usage = 2,
+    ValidationFailed = 3,
+    RuntimeError = 4,
+}
 
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
@@ -138,7 +299,16 @@ impl fmt::Display for NodeRole {
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     Requirement,
+    Roadmap,
+    Proposal,
+    Spec,
     Adr,
+    Plan,
+    Goal,
+    SupportTier,
+    PolicyLedger,
+    Closeout,
+    Claim,
     Guide,
     Scenario,
     Fixture,
@@ -152,7 +322,16 @@ impl NodeKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Requirement => "requirement",
+            Self::Roadmap => "roadmap",
+            Self::Proposal => "proposal",
+            Self::Spec => "spec",
             Self::Adr => "adr",
+            Self::Plan => "plan",
+            Self::Goal => "goal",
+            Self::SupportTier => "support_tier",
+            Self::PolicyLedger => "policy_ledger",
+            Self::Closeout => "closeout",
+            Self::Claim => "claim",
             Self::Guide => "guide",
             Self::Scenario => "scenario",
             Self::Fixture => "fixture",
@@ -166,7 +345,16 @@ impl NodeKind {
     pub fn role(self) -> NodeRole {
         match self {
             Self::Requirement => NodeRole::Behavior,
+            Self::Roadmap => NodeRole::Document,
+            Self::Proposal => NodeRole::Document,
+            Self::Spec => NodeRole::Document,
             Self::Adr => NodeRole::Document,
+            Self::Plan => NodeRole::Document,
+            Self::Goal => NodeRole::Document,
+            Self::SupportTier => NodeRole::Document,
+            Self::PolicyLedger => NodeRole::Document,
+            Self::Closeout => NodeRole::Document,
+            Self::Claim => NodeRole::Document,
             Self::Guide => NodeRole::Document,
             Self::Scenario => NodeRole::Proof,
             Self::Fixture => NodeRole::Proof,
@@ -190,7 +378,16 @@ impl FromStr for NodeKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "requirement" => Ok(Self::Requirement),
+            "roadmap" => Ok(Self::Roadmap),
+            "proposal" => Ok(Self::Proposal),
+            "spec" => Ok(Self::Spec),
             "adr" => Ok(Self::Adr),
+            "plan" => Ok(Self::Plan),
+            "goal" => Ok(Self::Goal),
+            "support_tier" => Ok(Self::SupportTier),
+            "policy_ledger" => Ok(Self::PolicyLedger),
+            "closeout" => Ok(Self::Closeout),
+            "claim" => Ok(Self::Claim),
             "guide" => Ok(Self::Guide),
             "scenario" => Ok(Self::Scenario),
             "fixture" => Ok(Self::Fixture),
@@ -217,6 +414,15 @@ pub enum EdgeKind {
     Documents,
     BelongsTo,
     Supports,
+    Defines,
+    Requires,
+    Decides,
+    Implements,
+    ActiveFor,
+    Claims,
+    Governs,
+    Closes,
+    Supersedes,
     OwnsPath,
     TouchesPath,
 }
@@ -233,6 +439,15 @@ impl EdgeKind {
             Self::Documents => "documents",
             Self::BelongsTo => "belongs_to",
             Self::Supports => "supports",
+            Self::Defines => "defines",
+            Self::Requires => "requires",
+            Self::Decides => "decides",
+            Self::Implements => "implements",
+            Self::ActiveFor => "active_for",
+            Self::Claims => "claims",
+            Self::Governs => "governs",
+            Self::Closes => "closes",
+            Self::Supersedes => "supersedes",
             Self::OwnsPath => "owns_path",
             Self::TouchesPath => "touches_path",
         }
@@ -259,6 +474,15 @@ impl FromStr for EdgeKind {
             "documents" => Ok(Self::Documents),
             "belongs_to" => Ok(Self::BelongsTo),
             "supports" => Ok(Self::Supports),
+            "defines" => Ok(Self::Defines),
+            "requires" => Ok(Self::Requires),
+            "decides" => Ok(Self::Decides),
+            "implements" => Ok(Self::Implements),
+            "active_for" => Ok(Self::ActiveFor),
+            "claims" => Ok(Self::Claims),
+            "governs" => Ok(Self::Governs),
+            "closes" => Ok(Self::Closes),
+            "supersedes" => Ok(Self::Supersedes),
             "owns_path" => Ok(Self::OwnsPath),
             "touches_path" => Ok(Self::TouchesPath),
             other => Err(other.to_string()),
@@ -348,7 +572,7 @@ impl Provenance {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasNode {
     pub id: AtlasId,
     pub kind: NodeKind,
@@ -378,7 +602,7 @@ pub struct AtlasEdge {
     pub provenance: Provenance,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AtlasDiagnostic {
     pub code: DiagnosticCode,
     pub severity: Severity,
@@ -438,6 +662,18 @@ pub struct DiscoveredRepo {
     pub diagnostics: Vec<AtlasDiagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct ActiveGoalConfig {
+    pub goal: Option<String>,
+    pub plan: Option<String>,
+    #[serde(default)]
+    pub proposal: Option<String>,
+    #[serde(default)]
+    pub spec: Option<String>,
+    #[serde(default)]
+    pub ready_work_items: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiscoveryConfig {
     #[serde(default = "default_roots")]
@@ -495,6 +731,8 @@ pub struct AtlasConfig {
     pub discovery: DiscoveryConfig,
     #[serde(default)]
     pub profiles: ProfileRegistry,
+    #[serde(default)]
+    pub active_goal: Option<ActiveGoalConfig>,
 }
 
 fn default_schema_version() -> u32 {
@@ -507,6 +745,7 @@ impl Default for AtlasConfig {
             schema_version: ATLAS_SCHEMA_VERSION,
             discovery: DiscoveryConfig::default(),
             profiles: ProfileRegistry::default(),
+            active_goal: None,
         }
     }
 }
@@ -656,22 +895,41 @@ pub struct WhyRequest {
     pub subject: WhySubject,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WhyStep {
     pub node: AtlasNode,
     pub relationship: EdgeKind,
     pub direction: TraceDirection,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WhyResponse {
     pub root: AtlasNode,
     pub chain: Vec<WhyStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WhyEnvelope {
+    pub schema_version: u32,
+    pub command: String,
+    pub payload: WhyResponse,
+}
+
+impl WhyEnvelope {
+    pub fn for_command(command: &str, payload: WhyResponse) -> Self {
+        Self {
+            schema_version: ATLAS_SCHEMA_VERSION,
+            command: command.to_string(),
+            payload,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ChangedPath {
     pub path: RepoRelativePath,
+    #[serde(default)]
+    pub owners: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -681,7 +939,7 @@ pub struct ImpactRequest {
     pub owners: std::collections::BTreeMap<RepoRelativePath, Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImpactHit {
     pub node: AtlasNode,
     pub reason: String,
@@ -689,10 +947,35 @@ pub struct ImpactHit {
     pub owners: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImpactResponse {
     pub impacted: Vec<ImpactHit>,
     pub uncovered: Vec<ChangedPath>,
+    #[serde(default)]
+    pub changed_paths: Vec<ChangedPath>,
+    #[serde(default)]
+    pub missing_evidence: Vec<AtlasDiagnostic>,
+    #[serde(default)]
+    pub scope_warnings: Vec<String>,
+    #[serde(default)]
+    pub suggested_fixes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ImpactEnvelope {
+    pub schema_version: u32,
+    pub command: String,
+    pub payload: ImpactResponse,
+}
+
+impl ImpactEnvelope {
+    pub fn for_command(command: &str, payload: ImpactResponse) -> Self {
+        Self {
+            schema_version: ATLAS_SCHEMA_VERSION,
+            command: command.to_string(),
+            payload,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

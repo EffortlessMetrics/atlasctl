@@ -1,12 +1,11 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::DiagnosticCode;
-use atlasctl_ports::{
+use atlasctl_app::{
     DiffError, DiffPort, DiscoverRequest, DiscoveryError, DiscoveryPort, OwnersError, OwnersPort,
 };
 use atlasctl_types::{
-    AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, EdgeKind,
-    NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
+    ActiveGoalConfig, AtlasConfig, AtlasDiagnostic, AtlasEdge, AtlasId, AtlasNode, DiagnosticCode,
+    DiscoveredRepo, EdgeKind, NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata::MetadataCommand;
@@ -36,6 +35,12 @@ impl DiscoveryPort for FsDiscovery {
             .unwrap_or_else(|| "repo".to_string());
 
         let (config, mut diagnostics) = load_config(&repo_root, request.config_path.as_ref());
+        let (active_goal, active_diagnostics) = load_active_goal_manifest(&repo_root);
+        diagnostics.extend(active_diagnostics);
+        let config = AtlasConfig {
+            active_goal,
+            ..config
+        };
 
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -49,6 +54,12 @@ impl DiscoveryPort for FsDiscovery {
             match classify_path(&rel_path) {
                 FileKind::Fragment => {
                     let parsed = parse_fragment_file(&repo_root, &rel_path);
+                    diagnostics.extend(parsed.diagnostics);
+                    nodes.extend(parsed.nodes);
+                    edges.extend(parsed.edges);
+                }
+                FileKind::PolicyToml => {
+                    let parsed = parse_policy_file(&repo_root, &rel_path);
                     diagnostics.extend(parsed.diagnostics);
                     nodes.extend(parsed.nodes);
                     edges.extend(parsed.edges);
@@ -114,6 +125,7 @@ impl DiffPort for GitDiff {
             .lines()
             .map(|line| atlasctl_types::ChangedPath {
                 path: atlasctl_types::RepoRelativePath::new(line),
+                owners: Vec::new(),
             })
             .collect();
 
@@ -245,6 +257,45 @@ fn load_config(
     }
 }
 
+fn load_active_goal_manifest(
+    repo_root: &Utf8Path,
+) -> (Option<ActiveGoalConfig>, Vec<AtlasDiagnostic>) {
+    let active_path = repo_root.join(".codex/goals/active.toml");
+    if !active_path.exists() {
+        return (None, vec![]);
+    }
+
+    let rel_path =
+        relative_path(repo_root, &active_path).unwrap_or_else(|| Utf8PathBuf::from("active.toml"));
+    let contents = match fs::read_to_string(&active_path) {
+        Ok(contents) => contents,
+        Err(err) => {
+            return (
+                None,
+                vec![AtlasDiagnostic::new(
+                    DiagnosticCode::InvalidConfig,
+                    format!("failed to read active goal manifest `{}`: {err}", rel_path),
+                    None,
+                    Some(location(&rel_path)),
+                )],
+            );
+        }
+    };
+
+    match toml::from_str::<ActiveGoalConfig>(&contents) {
+        Ok(active_goal) => (Some(active_goal), vec![]),
+        Err(err) => (
+            None,
+            vec![AtlasDiagnostic::new(
+                DiagnosticCode::InvalidConfig,
+                format!("failed to parse active goal manifest `{}`: {err}", rel_path),
+                None,
+                Some(location(&rel_path)),
+            )],
+        ),
+    }
+}
+
 fn collect_candidate_files(
     repo_root: &Utf8Path,
     roots: &[String],
@@ -308,6 +359,7 @@ fn is_ignored(path: &Utf8Path, ignored: &[String]) -> bool {
 enum FileKind {
     Fragment,
     Markdown,
+    PolicyToml,
     Other,
 }
 
@@ -315,11 +367,19 @@ fn classify_path(path: &Utf8Path) -> FileKind {
     let name = path.file_name().unwrap_or_default();
     if name.ends_with(".atlas.yaml") || name.ends_with(".atlas.yml") {
         FileKind::Fragment
+    } else if name.ends_with(".toml") && is_under_directory(path, "policy") {
+        FileKind::PolicyToml
     } else if name.ends_with(".md") {
         FileKind::Markdown
     } else {
         FileKind::Other
     }
+}
+
+fn is_under_directory(path: &Utf8Path, root: &str) -> bool {
+    path.components()
+        .next()
+        .is_some_and(|component| component.as_str() == root)
 }
 
 #[derive(Default)]
@@ -356,7 +416,10 @@ struct RawNode {
 #[derive(Debug, Deserialize)]
 struct RawEdge {
     from: String,
-    kind: String,
+    #[serde(default)]
+    relation: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
     to: String,
 }
 
@@ -416,6 +479,123 @@ fn parse_fragment_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     batch
 }
 
+#[derive(Debug, Deserialize)]
+struct PolicyFrontmatterEnvelope {
+    atlas: Option<PolicyFrontmatter>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PolicyFrontmatter {
+    id: Option<String>,
+    kind: Option<String>,
+    title: Option<String>,
+    summary: Option<String>,
+    #[serde(default)]
+    governs: Vec<String>,
+    #[serde(default)]
+    proves: Vec<String>,
+    #[serde(default)]
+    surfaces: Vec<String>,
+}
+
+fn parse_policy_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
+    let abs = repo_root.join(rel_path);
+    let mut batch = DiscoveryBatch::default();
+
+    let contents = match fs::read_to_string(&abs) {
+        Ok(contents) => contents,
+        Err(err) => {
+            batch.diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::DiscoveryFailure,
+                format!("failed to read `{}`: {err}", rel_path),
+                None,
+                Some(location(rel_path)),
+            ));
+            return batch;
+        }
+    };
+
+    let envelope = match toml::from_str::<PolicyFrontmatterEnvelope>(&contents) {
+        Ok(envelope) => envelope,
+        Err(err) => {
+            batch.diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::MalformedFragment,
+                format!("failed to parse policy file `{}`: {err}", rel_path),
+                None,
+                Some(location(rel_path)),
+            ));
+            return batch;
+        }
+    };
+
+    let Some(raw) = envelope.atlas else {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!("policy file `{}` is missing `atlas` section", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
+        return batch;
+    };
+
+    let Some(id) = raw.id else {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!("policy file `{}` is missing `atlas.id`", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
+        return batch;
+    };
+
+    let Some(kind) = raw.kind else {
+        batch.diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!("policy file `{}` is missing `atlas.kind`", rel_path),
+            None,
+            Some(location(rel_path)),
+        ));
+        return batch;
+    };
+
+    let mut attrs = BTreeMap::new();
+    let surfaces = raw.surfaces.clone();
+    if !surfaces.is_empty() {
+        attrs.insert(
+            "surfaces".to_string(),
+            Value::Array(surfaces.iter().cloned().map(Value::String).collect()),
+        );
+    }
+
+    let node = RawNode {
+        id: id.clone(),
+        kind,
+        title: raw.title.unwrap_or_else(|| id.clone()),
+        summary: raw.summary,
+        paths: Vec::new(),
+        owns: vec![rel_path.as_str().to_string()],
+        touches: surfaces,
+        attrs,
+    };
+
+    match parse_node(node, rel_path, Some(id.clone())) {
+        Ok(node) => batch.nodes.push(node),
+        Err(diagnostic) => {
+            batch.diagnostics.push(diagnostic);
+            return batch;
+        }
+    };
+
+    for target in raw.governs {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Governs, &target, rel_path);
+    }
+    for target in raw.proves {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Proves, &target, rel_path);
+    }
+
+    batch
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct FrontmatterEnvelope {
     atlas: Option<RawFrontmatterAtlas>,
@@ -453,6 +633,24 @@ struct RawFrontmatterAtlas {
     belongs_to: Vec<String>,
     #[serde(default)]
     supports: Vec<String>,
+    #[serde(default)]
+    defines: Vec<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    decides: Vec<String>,
+    #[serde(default)]
+    implements: Vec<String>,
+    #[serde(default)]
+    active_for: Vec<String>,
+    #[serde(default)]
+    claims: Vec<String>,
+    #[serde(default)]
+    governs: Vec<String>,
+    #[serde(default)]
+    closes: Vec<String>,
+    #[serde(default)]
+    supersedes: Vec<String>,
 }
 
 fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatch {
@@ -567,6 +765,33 @@ fn parse_markdown_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBa
     for target in raw.supports {
         push_frontmatter_edge(&mut batch, &id, EdgeKind::Supports, &target, rel_path);
     }
+    for target in raw.defines {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Defines, &target, rel_path);
+    }
+    for target in raw.requires {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Requires, &target, rel_path);
+    }
+    for target in raw.decides {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Decides, &target, rel_path);
+    }
+    for target in raw.implements {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Implements, &target, rel_path);
+    }
+    for target in raw.active_for {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::ActiveFor, &target, rel_path);
+    }
+    for target in raw.claims {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Claims, &target, rel_path);
+    }
+    for target in raw.governs {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Governs, &target, rel_path);
+    }
+    for target in raw.closes {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Closes, &target, rel_path);
+    }
+    for target in raw.supersedes {
+        push_frontmatter_edge(&mut batch, &id, EdgeKind::Supersedes, &target, rel_path);
+    }
 
     batch
 }
@@ -664,7 +889,35 @@ fn parse_edge(
         )
     })?;
 
-    let kind = raw.kind.parse::<EdgeKind>().map_err(|invalid| {
+    let relation = raw.relation.clone().or_else(|| raw.kind.clone());
+
+    if raw.relation.is_some() && raw.kind.is_some() && raw.relation != raw.kind {
+        return Err(AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!(
+                "edge in `{}` has conflicting `relation` `{}` and `kind` `{}`",
+                rel_path,
+                raw.relation.unwrap_or_default(),
+                raw.kind.unwrap_or_default()
+            ),
+            Some(from.clone()),
+            Some(location(rel_path)),
+        ));
+    }
+
+    let relation = relation.ok_or_else(|| {
+        AtlasDiagnostic::new(
+            DiagnosticCode::MalformedFragment,
+            format!(
+                "edge in `{}` is missing `relation` (or legacy `kind`)",
+                rel_path
+            ),
+            Some(from.clone()),
+            Some(location(rel_path)),
+        )
+    })?;
+
+    let kind = relation.parse::<EdgeKind>().map_err(|invalid| {
         AtlasDiagnostic::new(
             DiagnosticCode::UnknownEdgeKind,
             format!("unknown edge kind `{invalid}` in `{}`", rel_path),
@@ -952,6 +1205,208 @@ mod tests {
     }
 
     #[test]
+    fn parses_fragment_edges_with_relation_only() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-rel-only-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    relation: proves
+"#;
+        let fragment_path = root.join("atlas/relations.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(&repo_root, Utf8Path::new("atlas/relations.atlas.yaml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected relation-only edge to parse"
+        );
+        assert_eq!(batch.edges.len(), 1);
+        assert_eq!(batch.edges[0].kind, EdgeKind::Proves);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_fragment_edges_with_legacy_kind_only() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-kind-only-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    kind: proves
+"#;
+        let fragment_path = root.join("atlas/legacy-kind.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(&repo_root, Utf8Path::new("atlas/legacy-kind.atlas.yaml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected legacy kind-only edge to parse"
+        );
+        assert_eq!(batch.edges.len(), 1);
+        assert_eq!(batch.edges[0].kind, EdgeKind::Proves);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_fragment_edges_with_relation_and_same_kind() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-relation-same-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    relation: proves
+    kind: proves
+"#;
+        let fragment_path = root.join("atlas/relation-same.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch =
+            parse_fragment_file(&repo_root, Utf8Path::new("atlas/relation-same.atlas.yaml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected matching relation and kind to parse"
+        );
+        assert_eq!(batch.edges.len(), 1);
+        assert_eq!(batch.edges[0].kind, EdgeKind::Proves);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_fragment_edges_with_conflicting_relation_and_kind() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-conflict-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+    relation: proves
+    kind: runs_with
+"#;
+        let fragment_path = root.join("atlas/relation-conflict.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(
+            &repo_root,
+            Utf8Path::new("atlas/relation-conflict.atlas.yaml"),
+        );
+
+        assert_eq!(batch.edges.len(), 0);
+        assert_eq!(batch.diagnostics.len(), 1);
+        assert_eq!(batch.diagnostics[0].code, DiagnosticCode::MalformedFragment);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_fragment_edges_with_missing_relation_and_kind() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-missing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let content = r#"
+nodes:
+  - id: req:source-of-truth
+    kind: requirement
+    title: Source truth
+  - id: req:ship-proof
+    kind: requirement
+    title: Ship proof
+edges:
+  - from: req:source-of-truth
+    to: req:ship-proof
+"#;
+        let fragment_path = root.join("atlas/relation-missing.atlas.yaml");
+        std::fs::create_dir_all(root.join("atlas")).unwrap();
+        std::fs::write(&fragment_path, content).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_fragment_file(
+            &repo_root,
+            Utf8Path::new("atlas/relation-missing.atlas.yaml"),
+        );
+
+        assert_eq!(batch.edges.len(), 0);
+        assert_eq!(batch.diagnostics.len(), 1);
+        assert_eq!(batch.diagnostics[0].code, DiagnosticCode::MalformedFragment);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn classifies_files() {
         assert!(matches!(
             classify_path(Utf8Path::new("atlas/example.atlas.yaml")),
@@ -961,5 +1416,392 @@ mod tests {
             classify_path(Utf8Path::new("docs/architecture.md")),
             FileKind::Markdown
         ));
+        assert!(matches!(
+            classify_path(Utf8Path::new("policy/release-review.toml")),
+            FileKind::PolicyToml
+        ));
+        assert!(matches!(
+            classify_path(Utf8Path::new("policy/release/review.toml")),
+            FileKind::PolicyToml
+        ));
+    }
+
+    #[test]
+    fn parses_policy_toml_file() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy")).unwrap();
+
+        let policy = r#"
+[atlas]
+id = "policy_ledger:release-review-guardrails"
+kind = "policy_ledger"
+title = "Release Review Guardrails"
+summary = "Defines review checks for generated artifacts."
+surfaces = ["docs/**/*.md", ".github/workflows/*.yml"]
+governs = ["policy_ledger:review-policy-guidance"]
+proves = ["cmd:policy-audit"]
+"#;
+
+        let policy_path = root.join("policy/release-review.toml");
+        std::fs::write(&policy_path, policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_policy_file(&repo_root, Utf8Path::new("policy/release-review.toml"));
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected policy file to parse cleanly"
+        );
+        assert_eq!(batch.nodes.len(), 1, "expected one policy node");
+        assert_eq!(batch.edges.len(), 2, "expected governs and proves edges");
+
+        let node = &batch.nodes[0];
+        assert_eq!(node.id.as_str(), "policy_ledger:release-review-guardrails");
+        assert_eq!(node.kind, NodeKind::PolicyLedger);
+        assert!(
+            node.attrs.contains_key("surfaces"),
+            "surfaces should be preserved as node attrs"
+        );
+        assert!(
+            node.touches
+                .iter()
+                .any(|pattern| pattern.pattern == "docs/**/*.md"),
+            "surface should become a touches selector"
+        );
+        assert!(
+            node.touches
+                .iter()
+                .any(|pattern| pattern.pattern == ".github/workflows/*.yml"),
+            "surface should become a touches selector"
+        );
+
+        let governs = batch.edges.iter().any(|edge| {
+            edge.kind == EdgeKind::Governs
+                && edge.to.as_str() == "policy_ledger:review-policy-guidance"
+        });
+        let proves = batch
+            .edges
+            .iter()
+            .any(|edge| edge.kind == EdgeKind::Proves && edge.to.as_str() == "cmd:policy-audit");
+
+        assert!(governs, "expected governs edge");
+        assert!(proves, "expected proves edge");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_nested_policy_toml_file() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-nested-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy/release/governance")).unwrap();
+
+        let policy = r#"
+  [atlas]
+  id = "policy_ledger:release-governance"
+  kind = "policy_ledger"
+  title = "Release Governance"
+  summary = "Nested governance policy metadata."
+  surfaces = ["docs/**/*.md"]
+  proves = ["cmd:policy-audit"]
+"#;
+
+        let policy_path = root.join("policy/release/governance/review-process.toml");
+        std::fs::write(&policy_path, policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_policy_file(
+            &repo_root,
+            Utf8Path::new("policy/release/governance/review-process.toml"),
+        );
+
+        assert!(
+            batch.diagnostics.is_empty(),
+            "expected nested policy file to parse cleanly"
+        );
+        assert_eq!(batch.nodes.len(), 1, "expected one policy node");
+        assert_eq!(
+            batch.nodes[0].id.as_str(),
+            "policy_ledger:release-governance"
+        );
+        assert_eq!(batch.edges.len(), 1, "expected one proves edge");
+        assert!(
+            batch.edges[0].kind == EdgeKind::Proves
+                && batch.edges[0].to.as_str() == "cmd:policy-audit"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn discover_includes_policy_toml_via_default_roots() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-discovery-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy")).unwrap();
+
+        let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git", "node_modules"]
+"#;
+        std::fs::write(root.join("atlas.toml"), atlas_config).unwrap();
+
+        let policy = r#"
+[atlas]
+id = "policy_ledger:discovery-test"
+kind = "policy_ledger"
+title = "Discovery test policy"
+summary = "Ensures policy files are discovered."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:policy-check"]
+"#;
+        std::fs::write(root.join("policy/test-policy.toml"), policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let discovery = FsDiscovery;
+        let request = DiscoverRequest {
+            repo_root,
+            config_path: None,
+        };
+        let discovered = discovery
+            .discover(&request)
+            .expect("discovery should succeed for policy fixture");
+
+        assert!(
+            discovered
+                .nodes
+                .iter()
+                .any(|node| node.id.as_str() == "policy_ledger:discovery-test"),
+            "policy ledger nodes under policy/ should be discovered"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_source_truth_frontmatter_relations() {
+        let mut root = std::env::temp_dir();
+        root.push(format!("atlasctl-discover-fs-{}", std::process::id()));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        let markdown = r#"---
+atlas:
+  id: goal:ship-source-of-truth
+  kind: goal
+  title: Source-of-truth roadmap execution
+  active_for:
+    - roadmap:local-first
+  claims:
+    - support_tier:supported-claims
+  defines:
+    - proposal:source-truth-proposal
+  requires:
+    - spec:source-truth-spec
+  decides:
+    - policy_ledger:release-policy
+  implements:
+    - adr:stable-ids
+  governs:
+    - support_tier:supported-claims
+  closes:
+    - closeout:release-1
+  supersedes:
+    - plan:old-release-plan
+---
+# Source-of-Truth Execution
+"#;
+
+        let md_path = root.join("docs/roadmap-truth.md");
+        std::fs::write(&md_path, markdown).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_markdown_file(&repo_root, Utf8Path::new("docs/roadmap-truth.md"));
+
+        assert!(batch.diagnostics.is_empty(), "expected no diagnostics");
+        assert_eq!(batch.nodes.len(), 1);
+        assert_eq!(batch.nodes[0].id.as_str(), "goal:ship-source-of-truth");
+        assert_eq!(batch.nodes[0].kind, NodeKind::Goal);
+
+        let edge_kinds: Vec<_> = batch.edges.iter().map(|edge| edge.kind).collect();
+        assert!(edge_kinds.contains(&EdgeKind::ActiveFor));
+        assert!(edge_kinds.contains(&EdgeKind::Claims));
+        assert!(edge_kinds.contains(&EdgeKind::Defines));
+        assert!(edge_kinds.contains(&EdgeKind::Requires));
+        assert!(edge_kinds.contains(&EdgeKind::Decides));
+        assert!(edge_kinds.contains(&EdgeKind::Implements));
+        assert!(edge_kinds.contains(&EdgeKind::Governs));
+        assert!(edge_kinds.contains(&EdgeKind::Closes));
+        assert!(edge_kinds.contains(&EdgeKind::Supersedes));
+        assert_eq!(batch.edges.len(), 9);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_support_tier_claim_links() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-support-tier-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("docs/status")).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        let support_tier = r#"---
+atlas:
+  id: support_tier:docs-support
+  kind: support_tier
+  title: Docs support tier
+  proves:
+    - cmd:docs-proof
+  claims:
+    - claim:docs-readme-accuracy
+---
+# Docs support tier
+"#;
+
+        let claim = r#"---
+atlas:
+  id: claim:docs-readme-accuracy
+  kind: claim
+  title: README keeps claims truthful
+  supports:
+    - support_tier:docs-support
+  proves:
+    - cmd:docs-proof
+---
+# README
+"#;
+
+        let md_path = root.join("docs/status/SUPPORT_TIERS.md");
+        let claim_path = root.join("docs/README.md");
+
+        std::fs::write(&md_path, support_tier).unwrap();
+        std::fs::write(&claim_path, claim).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let support_batch =
+            parse_markdown_file(&repo_root, Utf8Path::new("docs/status/SUPPORT_TIERS.md"));
+        let claim_batch = parse_markdown_file(&repo_root, Utf8Path::new("docs/README.md"));
+
+        let batch_nodes: Vec<_> = support_batch
+            .nodes
+            .into_iter()
+            .chain(claim_batch.nodes)
+            .collect();
+        let batch_edges: Vec<_> = support_batch
+            .edges
+            .into_iter()
+            .chain(claim_batch.edges)
+            .collect();
+
+        assert!(
+            support_batch.diagnostics.is_empty(),
+            "expected no diagnostics in support tier fixture"
+        );
+        assert!(
+            claim_batch.diagnostics.is_empty(),
+            "expected no diagnostics in claim fixture"
+        );
+        assert_eq!(batch_nodes.len(), 2);
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "support_tier:docs-support"
+                && edge.kind == EdgeKind::Claims
+                && edge.to.as_str() == "claim:docs-readme-accuracy"
+        }));
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "support_tier:docs-support"
+                && edge.kind == EdgeKind::Proves
+                && edge.to.as_str() == "cmd:docs-proof"
+        }));
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "claim:docs-readme-accuracy"
+                && edge.kind == EdgeKind::Supports
+                && edge.to.as_str() == "support_tier:docs-support"
+        }));
+        assert!(batch_edges.iter().any(|edge| {
+            edge.from.as_str() == "claim:docs-readme-accuracy"
+                && edge.kind == EdgeKind::Proves
+                && edge.to.as_str() == "cmd:docs-proof"
+        }));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn discovers_active_goal_manifest() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-active-{}",
+            std::process::id()
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".codex/goals")).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        let manifest = r#"
+goal = "goal:operationalize-atlas"
+plan = "plan:release-1"
+proposal = "proposal:release-plan"
+spec = "spec:release-spec"
+ready_work_items = ["scen:plan-release", "scen:docs-check"]
+"#;
+
+        std::fs::write(root.join(".codex/goals/active.toml"), manifest).unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/engine\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("crates/engine")).unwrap();
+        std::fs::write(
+            root.join("crates/engine/Cargo.toml"),
+            "[package]\nname = \"engine\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+
+        let request = DiscoverRequest {
+            repo_root: Utf8PathBuf::from_path_buf(root.clone()).unwrap(),
+            config_path: None,
+        };
+
+        let discovery = FsDiscovery;
+        let discovered = discovery.discover(&request).expect("discovery succeeds");
+
+        let active_goal = discovered.config.active_goal.expect("active goal loaded");
+        assert_eq!(
+            active_goal.goal,
+            Some("goal:operationalize-atlas".to_string())
+        );
+        assert_eq!(active_goal.plan, Some("plan:release-1".to_string()));
+        assert_eq!(
+            active_goal.ready_work_items,
+            vec!["scen:plan-release", "scen:docs-check"]
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }

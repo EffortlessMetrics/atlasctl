@@ -1,0 +1,7 @@
+goal = "goal:ship-proof-topology-stack"
+plan = "plan:closeout-proof-topology-v0-1"
+proposal = "proposal:proof-topology-stack"
+spec = "spec:proof-topology-stack"
+ready_work_items = [
+  "scen:full-release-verification",
+]

@@ -1,3 +1,22 @@
+---
+atlas:
+  id: claim:readme-doc-truth
+  kind: claim
+  title: README claims stay truthful
+  summary: >
+    README claims about local-first proof topology and review workflows must remain
+    traceable to a documented support tier and proof command.
+  proves:
+    - cmd:docs-check
+  documents:
+    - spec:proof-topology-stack
+    - goal:ship-proof-topology-stack
+    - support_tier:docs
+    - closeout:v0-1-proof-topology
+  supports:
+    - support_tier:docs
+---
+
 # atlasctl
 
 [![CI](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EffortlessMetrics/atlasctl/actions/workflows/ci.yml)
@@ -27,6 +46,12 @@ atlasctl impacted --base main --head HEAD
 
 # Use in CI for a compact summary
 atlasctl impacted --format gh-summary
+
+# Get a review packet for a PR-style path diff
+atlasctl review-packet --base main --head HEAD
+
+# Or for explicit path-focused review packets
+atlasctl review-packet --paths crates/engine src/main.rs
 ```
 
 ### 3. Semantic Navigation with `why`

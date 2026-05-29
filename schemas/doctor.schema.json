@@ -218,7 +218,12 @@
         "duplicate_ownership",
         "empty_fragment",
         "requirement_not_proven",
-        "uncovered_crate"
+        "uncovered_crate",
+        "active_goal_missing_plan",
+        "active_goal_missing_ready_work_items",
+        "active_goal_work_item_missing_proof",
+        "claim_missing_proof_command",
+        "policy_ledger_missing_proof_command"
       ]
     },
     "EdgeKind": {
@@ -233,6 +238,15 @@
         "documents",
         "belongs_to",
         "supports",
+        "defines",
+        "requires",
+        "decides",
+        "implements",
+        "active_for",
+        "claims",
+        "governs",
+        "closes",
+        "supersedes",
         "owns_path",
         "touches_path"
       ]
@@ -241,7 +255,16 @@
       "type": "string",
       "enum": [
         "requirement",
+        "roadmap",
+        "proposal",
+        "spec",
         "adr",
+        "plan",
+        "goal",
+        "support_tier",
+        "policy_ledger",
+        "closeout",
+        "claim",
         "guide",
         "scenario",
         "fixture",

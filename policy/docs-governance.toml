@@ -1,0 +1,15 @@
+[atlas]
+id = "policy_ledger:docs-surface-governance"
+kind = "policy_ledger"
+title = "Docs surface governance"
+summary = "Documentation and claim surfaces require validation before release."
+surfaces = [
+  "docs/**/*.md",
+  "docs/status/**/*.md",
+  "AGENTS.md",
+  "README.md",
+  "RELEASE.md",
+  "policy/**/*.toml"
+]
+proves = ["cmd:docs-check"]
+governs = ["support_tier:docs"]

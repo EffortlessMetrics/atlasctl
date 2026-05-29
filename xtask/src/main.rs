@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_types::{AtlasGraph, ImpactResponse, WhyResponse};
+use atlasctl_types::{AtlasGraph, ImpactEnvelope, WhyEnvelope};
 use camino::Utf8PathBuf;
 use schemars::schema_for;
 use std::env;
@@ -120,8 +120,8 @@ fn schema(check: bool) -> Result<(), String> {
 
     let targets = vec![
         ("atlas.schema.json", schema_for!(AtlasGraph)),
-        ("impact.schema.json", schema_for!(ImpactResponse)),
-        ("why.schema.json", schema_for!(WhyResponse)),
+        ("impact.schema.json", schema_for!(ImpactEnvelope)),
+        ("why.schema.json", schema_for!(WhyEnvelope)),
         // For now doctor result is the full graph
         ("doctor.schema.json", schema_for!(AtlasGraph)),
     ];

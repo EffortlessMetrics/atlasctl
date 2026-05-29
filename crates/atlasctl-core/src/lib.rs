@@ -1,11 +1,12 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_codes::{DiagnosticCode, Severity};
 use atlasctl_types::{
-    ATLAS_SCHEMA_VERSION, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode,
-    DiscoveredRepo, EdgeKind, ImpactHit, ImpactRequest, ImpactResponse, NodeKind, NodeMatch,
-    ProfileSettings, QueryRequest, QueryResponse, SourceLocation, TraceDirection, TraceEdge,
-    TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep, WhySubject,
+    ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId,
+    AtlasMetrics, AtlasNode, ChangedPath, DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit,
+    ImpactRequest, ImpactResponse, NodeKind, NodeMatch, NodeRole, PathSelector, ProfileSettings,
+    QueryRequest, QueryResponse, RepoRelativePath, Severity, SourceLocation, TraceDirection,
+    TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep,
+    WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -103,6 +104,12 @@ pub fn compile_atlas(discovered: DiscoveredRepo, profile: ValidationProfile) -> 
     }
 
     let nodes: Vec<AtlasNode> = unique_nodes.values().cloned().collect();
+    validate_active_goal(
+        discovered.config.active_goal.as_ref(),
+        &nodes,
+        &valid_edges,
+        &mut diagnostics,
+    );
     validate_completeness(&nodes, &valid_edges, &settings, &mut diagnostics);
     apply_profile_escalation(&settings, &mut diagnostics);
     sort_diagnostics(&mut diagnostics);
@@ -129,6 +136,218 @@ pub fn compile_atlas(discovered: DiscoveredRepo, profile: ValidationProfile) -> 
         edges: valid_edges,
         diagnostics,
         metrics,
+    }
+}
+
+fn validate_active_goal(
+    active_goal: Option<&ActiveGoalConfig>,
+    nodes: &[AtlasNode],
+    edges: &[AtlasEdge],
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+) {
+    let Some(active_goal) = active_goal else {
+        return;
+    };
+
+    let mut node_index = BTreeMap::<AtlasId, &AtlasNode>::new();
+    for node in nodes {
+        node_index.insert(node.id.clone(), node);
+    }
+
+    let active_goal_location = SourceLocation {
+        path: atlasctl_types::RepoRelativePath::new(".codex/goals/active.toml"),
+        line: None,
+        column: None,
+    };
+
+    let mut resolved_plan: Option<AtlasId> = None;
+    match active_goal.plan.as_deref() {
+        None => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::ActiveGoalMissingPlan,
+                "active goal does not define a plan",
+                None,
+                Some(active_goal_location.clone()),
+            ));
+        }
+        Some(plan_ref) => {
+            let parsed_plan_ref = match AtlasId::parse(plan_ref) {
+                Ok(plan) => Some(plan),
+                Err(err) => {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::InvalidId,
+                        format!("active goal plan id `{}` is invalid: {err}", plan_ref),
+                        None,
+                        Some(active_goal_location.clone()),
+                    ));
+                    None
+                }
+            };
+
+            if let Some(plan) = parsed_plan_ref {
+                resolved_plan = Some(plan.clone());
+                match node_index.get(&plan) {
+                    Some(node) if node.kind == NodeKind::Plan => {}
+                    Some(_) => {
+                        diagnostics.push(AtlasDiagnostic::new(
+                            DiagnosticCode::BrokenReference,
+                            format!("active goal plan `{}` exists but is not a plan node", plan),
+                            Some(plan.clone()),
+                            Some(active_goal_location.clone()),
+                        ));
+                    }
+                    None => {
+                        diagnostics.push(AtlasDiagnostic::new(
+                            DiagnosticCode::BrokenReference,
+                            format!("active goal plan `{}` does not exist", plan),
+                            Some(plan.clone()),
+                            Some(active_goal_location.clone()),
+                        ));
+                    }
+                }
+            }
+        }
+    };
+
+    if active_goal.ready_work_items.is_empty() {
+        diagnostics.push(AtlasDiagnostic::new(
+            DiagnosticCode::ActiveGoalMissingReadyWorkItems,
+            "active goal has no ready work items",
+            resolved_plan,
+            Some(active_goal_location.clone()),
+        ));
+    } else {
+        let mut has_proof_command = BTreeMap::<AtlasId, bool>::new();
+        for edge in edges {
+            if edge.kind == EdgeKind::RunsWith {
+                has_proof_command.insert(edge.from.clone(), true);
+            }
+        }
+
+        for work_item_ref in &active_goal.ready_work_items {
+            let work_item = match AtlasId::parse(work_item_ref) {
+                Ok(work_item) => work_item,
+                Err(err) => {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::InvalidId,
+                        format!(
+                            "active goal ready work item id `{}` is invalid: {err}",
+                            work_item_ref
+                        ),
+                        None,
+                        Some(active_goal_location.clone()),
+                    ));
+                    continue;
+                }
+            };
+
+            let Some(node) = node_index.get(&work_item) else {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::BrokenReference,
+                    format!("active goal work item `{}` does not exist", work_item),
+                    Some(work_item.clone()),
+                    Some(active_goal_location.clone()),
+                ));
+                continue;
+            };
+
+            if node.role != NodeRole::Proof {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::ActiveGoalWorkItemMissingProof,
+                    format!("active goal work item `{}` is not a proof item", work_item),
+                    Some(work_item.clone()),
+                    Some(active_goal_location.clone()),
+                ));
+                continue;
+            }
+
+            if !has_proof_command.contains_key(&work_item) {
+                diagnostics.push(AtlasDiagnostic::new(
+                    DiagnosticCode::ActiveGoalWorkItemMissingProof,
+                    format!("active goal work item `{}` has no proof command", work_item),
+                    Some(work_item),
+                    Some(active_goal_location.clone()),
+                ));
+            }
+        }
+    }
+
+    if let Some(proposal_ref) = active_goal.proposal.as_deref() {
+        validate_active_goal_ref(
+            "proposal",
+            proposal_ref,
+            NodeKind::Proposal,
+            &node_index,
+            diagnostics,
+            active_goal_location.clone(),
+        );
+    }
+
+    if let Some(goal_ref) = active_goal.goal.as_deref() {
+        validate_active_goal_ref(
+            "goal",
+            goal_ref,
+            NodeKind::Goal,
+            &node_index,
+            diagnostics,
+            active_goal_location.clone(),
+        );
+    }
+
+    if let Some(spec_ref) = active_goal.spec.as_deref() {
+        validate_active_goal_ref(
+            "spec",
+            spec_ref,
+            NodeKind::Spec,
+            &node_index,
+            diagnostics,
+            active_goal_location.clone(),
+        );
+    }
+}
+
+fn validate_active_goal_ref(
+    name: &str,
+    value: &str,
+    expected_kind: NodeKind,
+    node_index: &BTreeMap<AtlasId, &AtlasNode>,
+    diagnostics: &mut Vec<AtlasDiagnostic>,
+    location: SourceLocation,
+) {
+    let parsed = match AtlasId::parse(value) {
+        Ok(id) => id,
+        Err(err) => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::InvalidId,
+                format!("active goal {name} id `{value}` is invalid: {err}"),
+                None,
+                Some(location),
+            ));
+            return;
+        }
+    };
+
+    match node_index.get(&parsed) {
+        Some(node) if node.kind == expected_kind => {}
+        Some(_) => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::BrokenReference,
+                format!(
+                    "active goal {name} `{}` exists but is not a `{}` node",
+                    parsed, expected_kind
+                ),
+                Some(parsed),
+                Some(location),
+            ));
+        }
+        None => {
+            diagnostics.push(AtlasDiagnostic::new(
+                DiagnosticCode::BrokenReference,
+                format!("active goal {name} `{}` does not exist", parsed),
+                Some(parsed),
+                Some(location),
+            ));
+        }
     }
 }
 
@@ -292,20 +511,36 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
     let root = match &request.subject {
         WhySubject::Id(id) => graph.nodes.iter().find(|n| n.id == *id)?,
         WhySubject::Path(path) => {
-            // Find nodes that have a selector matching this path
-            graph.nodes.iter().find(|n| {
-                n.all_paths().any(|p| {
-                    let pattern = p.pattern.replace('\\', "/");
-                    let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
-                        .ok()
-                        .and_then(|g| g.compile_matcher().into());
-                    if let Some(glob) = glob {
-                        glob.is_match(path.as_str())
-                    } else {
-                        false
+            // Choose the most specific matching node deterministically:
+            // - prefer owns over touches
+            // - prefer more literal selectors
+            // - prefer longer selector patterns
+            // - deterministic tie-breaker by node id
+            let mut best: Option<(&AtlasNode, bool, usize, usize)> = None;
+
+            for node in &graph.nodes {
+                for selector in &node.owns {
+                    if path_matches_selector(path, selector) {
+                        let exactness = path_selector_exactness(&selector.pattern);
+                        let candidate_len = selector.pattern.len();
+                        if is_better_path_match(node, true, exactness, candidate_len, &best) {
+                            best = Some((node, true, exactness, candidate_len));
+                        }
                     }
-                })
-            })?
+                }
+
+                for selector in &node.touches {
+                    if path_matches_selector(path, selector) {
+                        let exactness = path_selector_exactness(&selector.pattern);
+                        let candidate_len = selector.pattern.len();
+                        if is_better_path_match(node, false, exactness, candidate_len, &best) {
+                            best = Some((node, false, exactness, candidate_len));
+                        }
+                    }
+                }
+            }
+
+            best.map(|(node, _, _, _)| node)?
         }
     };
 
@@ -340,7 +575,7 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
         } else if edge.from == root.id {
             // Outgoing edges
             match edge.kind {
-                EdgeKind::Emits | EdgeKind::Exercises | EdgeKind::RunsWith => {
+                EdgeKind::Emits | EdgeKind::Exercises | EdgeKind::RunsWith | EdgeKind::Proves => {
                     if let Some(node) = graph.nodes.iter().find(|n| n.id == edge.to)
                         && visited.insert(node.id.clone())
                     {
@@ -362,11 +597,76 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
     })
 }
 
+fn is_better_path_match(
+    node: &AtlasNode,
+    owns: bool,
+    exactness: usize,
+    pattern_len: usize,
+    current: &Option<(&AtlasNode, bool, usize, usize)>,
+) -> bool {
+    match current {
+        None => true,
+        Some((current_node, current_owns, current_exactness, current_pattern_len)) => {
+            owns != *current_owns && owns
+                || (owns == *current_owns
+                    && (exactness > *current_exactness
+                        || (exactness == *current_exactness
+                            && (pattern_len > *current_pattern_len
+                                || (pattern_len == *current_pattern_len
+                                    && node.id < current_node.id)))))
+        }
+    }
+}
+
+fn path_matches_selector(path: &RepoRelativePath, selector: &PathSelector) -> bool {
+    let pattern = selector.pattern.replace('\\', "/");
+    let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
+        .ok()
+        .and_then(|g| g.compile_matcher().into());
+
+    if let Some(glob) = glob {
+        glob.is_match(path.as_str())
+    } else {
+        false
+    }
+}
+
+fn path_selector_exactness(pattern: &str) -> usize {
+    pattern
+        .chars()
+        .filter(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(
+                    ch,
+                    '/' | '\\' | '-' | '_' | '.' | ':' | '@' | '[' | ']' | '{' | '}' | '(' | ')'
+                )
+        })
+        .count()
+}
+
 pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResponse {
     let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
-    let mut uncovered = Vec::new();
+    let mut uncovered = BTreeMap::<RepoRelativePath, Vec<String>>::new();
+    let mut impacted_ids = BTreeSet::<AtlasId>::new();
+    let mut changed_paths = BTreeMap::<RepoRelativePath, Vec<String>>::new();
 
     for changed in &request.paths {
+        let owners_for_changed = if !changed.owners.is_empty() {
+            changed.owners.clone()
+        } else {
+            request
+                .owners
+                .get(&changed.path)
+                .cloned()
+                .unwrap_or_default()
+        };
+        let changed_entry = changed_paths.entry(changed.path.clone()).or_default();
+        for owner in owners_for_changed {
+            if !changed_entry.contains(&owner) {
+                changed_entry.push(owner);
+            }
+        }
+
         let mut found_any = false;
         for node in &graph.nodes {
             for selector in node.all_paths() {
@@ -379,10 +679,10 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                 {
                     found_any = true;
 
-                    let mut hit_owners = Vec::new();
-                    if let Some(owners) = request.owners.get(&changed.path) {
-                        hit_owners.extend(owners.clone());
-                    }
+                    let hit_owners = changed_paths
+                        .get(&changed.path)
+                        .cloned()
+                        .unwrap_or_default();
 
                     let entry = impacted
                         .entry(node.id.clone())
@@ -398,13 +698,44 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                             entry.owners.push(o);
                         }
                     }
+
+                    impacted_ids.insert(node.id.clone());
                 }
             }
         }
         if !found_any {
-            uncovered.push(changed.clone());
+            let entry = uncovered.entry(changed.path.clone()).or_default();
+            for owner in changed_paths
+                .get(&changed.path)
+                .cloned()
+                .unwrap_or_default()
+            {
+                if !entry.contains(&owner) {
+                    entry.push(owner);
+                }
+            }
         }
     }
+
+    let mut changed_paths = changed_paths
+        .into_iter()
+        .map(|(path, mut owners): (RepoRelativePath, Vec<String>)| {
+            owners.sort();
+            owners.dedup();
+            ChangedPath { path, owners }
+        })
+        .collect::<Vec<_>>();
+    changed_paths.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let mut uncovered = uncovered
+        .into_iter()
+        .map(|(path, mut owners): (RepoRelativePath, Vec<String>)| {
+            owners.sort();
+            owners.dedup();
+            ChangedPath { path, owners }
+        })
+        .collect::<Vec<_>>();
+    uncovered.sort_by(|left, right| left.path.cmp(&right.path));
 
     // Graph expansion: 1 step from direct hits
     let direct_hits: Vec<_> = impacted.keys().cloned().collect();
@@ -431,6 +762,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                             entry.owners.push(o);
                         }
                     }
+                    impacted_ids.insert(to_node.id.clone());
                 }
             } else if edge.to == hit_id {
                 // Incoming
@@ -453,18 +785,294 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                             entry.owners.push(o);
                         }
                     }
+                    impacted_ids.insert(from_node.id.clone());
                 }
             }
         }
     }
 
+    let mut missing_evidence = graph
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .subject
+                .as_ref()
+                .is_some_and(|subject| impacted_ids.contains(subject))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    missing_evidence.sort_by(|left, right| {
+        left.code
+            .cmp(&right.code)
+            .then_with(|| left.subject.cmp(&right.subject))
+            .then_with(|| left.message.cmp(&right.message))
+    });
+
+    let mut scope_warnings = compute_scope_warnings(request, &impacted);
+    if !uncovered.is_empty() {
+        scope_warnings.push(format!(
+            "`{}` changed paths are not covered by any known ownership/touches selector",
+            uncovered.len()
+        ));
+    }
+    if missing_evidence
+        .iter()
+        .any(|diagnostic| diagnostic.code == DiagnosticCode::ActiveGoalMissingPlan)
+    {
+        scope_warnings.push(
+            "active-goal metadata is not complete; check `.codex/goals/active.toml`".to_string(),
+        );
+    }
+    let mut suggested_fixes = missing_evidence
+        .iter()
+        .filter_map(|diagnostic| match diagnostic.code {
+            DiagnosticCode::RequirementNotProven => Some(
+                "add a scenario that proves this requirement and connects to a command".to_string(),
+            ),
+            DiagnosticCode::ClaimMissingProofCommand => {
+                Some("link this claim node to a command via a `proves` edge".to_string())
+            }
+            DiagnosticCode::PolicyLedgerMissingProofCommand => {
+                Some("link this policy ledger node to its enforcement command".to_string())
+            }
+            DiagnosticCode::ScenarioMissingCommand => {
+                Some("add a `runs_with` edge from scenario to command".to_string())
+            }
+            DiagnosticCode::ScenarioMissingCrate => {
+                Some("add an `exercises` edge from scenario to impacted crate".to_string())
+            }
+            DiagnosticCode::ArtifactMissingProducer => {
+                Some("add an `emits` edge from scenario to artifact".to_string())
+            }
+            DiagnosticCode::DuplicateOwnership => {
+                Some("remove one of the overlapping ownership declarations".to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    suggested_fixes.extend(
+        scope_warnings
+            .iter()
+            .filter_map(|warning| suggest_fix_for_scope_warning(warning).map(str::to_string)),
+    );
+    suggested_fixes.sort();
+    suggested_fixes.dedup();
+    maybe_sort_and_dedup_scope_warnings(&mut scope_warnings);
+
     let mut impacted_list: Vec<_> = impacted.into_values().collect();
+    for hit in impacted_list.iter_mut() {
+        hit.owners.sort();
+        hit.owners.dedup();
+    }
     impacted_list.sort_by(|a, b| a.node.id.cmp(&b.node.id));
 
     ImpactResponse {
         impacted: impacted_list,
         uncovered,
+        changed_paths,
+        missing_evidence,
+        scope_warnings,
+        suggested_fixes,
     }
+}
+
+fn compute_scope_warnings(
+    request: &ImpactRequest,
+    impacted: &BTreeMap<AtlasId, ImpactHit>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    let mut has_workflow = false;
+    let mut has_schema = false;
+    let mut has_support_tier = false;
+    let mut has_generated = false;
+
+    let mut impacted_has_protocol_spec = false;
+    let mut impacted_has_policy_ledger = false;
+    let mut impacted_has_command = false;
+    let mut impacted_has_artifact = false;
+    let mut impacted_has_non_document_surface = false;
+
+    for changed in &request.paths {
+        let path = changed.path.as_str();
+        if is_workflow_path(path) {
+            has_workflow = true;
+        }
+        if is_schema_path(path) {
+            has_schema = true;
+        }
+        if is_support_tier_claim_path(path) {
+            has_support_tier = true;
+        }
+        if is_generated_path(path) {
+            has_generated = true;
+        }
+    }
+
+    for hit in impacted.values() {
+        match hit.node.kind {
+            NodeKind::Spec | NodeKind::Proposal | NodeKind::Adr => {
+                impacted_has_protocol_spec = true;
+            }
+            NodeKind::PolicyLedger => impacted_has_policy_ledger = true,
+            NodeKind::Command => impacted_has_command = true,
+            NodeKind::Artifact => impacted_has_artifact = true,
+            _ => {}
+        }
+        if hit.node.role != NodeRole::Document {
+            impacted_has_non_document_surface = true;
+        }
+    }
+
+    let docs_only = !request.paths.is_empty()
+        && request
+            .paths
+            .iter()
+            .all(|changed| is_documentation_path(changed.path.as_str()));
+
+    if docs_only && impacted_has_non_document_surface {
+        warnings.push(
+            "documentation-only paths affect non-document surfaces; split review scope if this is not a docs-only PR"
+                .to_string(),
+        );
+    }
+    if request
+        .paths
+        .iter()
+        .any(|changed| is_implementation_path(changed.path.as_str()))
+        && request
+            .paths
+            .iter()
+            .any(|changed| is_documentation_path(changed.path.as_str()))
+    {
+        warnings.push(
+            "path set mixes documentation and implementation files; avoid one-off scope mismatches"
+                .to_string(),
+        );
+    }
+    if has_workflow && !impacted_has_policy_ledger {
+        warnings.push(
+            "workflow file changed but no policy ledger node was impacted; add/adjust `policy_ledger` coverage"
+                .to_string(),
+        );
+    }
+    if has_schema && !impacted_has_protocol_spec {
+        warnings.push(
+            "schema change is not linked to a protocol spec/proposal/doc artifact; update the relevant spec"
+                .to_string(),
+        );
+    }
+    if has_support_tier && !impacted_has_command {
+        warnings.push(
+            "support tier claim changed but no proof command was impacted; add/update proof command coverage"
+                .to_string(),
+        );
+    }
+    if has_generated && !impacted_has_artifact {
+        warnings.push(
+            "generated artifact changed without an impacted artifact node; validate output path ownership"
+                .to_string(),
+        );
+    }
+
+    maybe_sort_and_dedup_scope_warnings(&mut warnings);
+    warnings
+}
+
+fn maybe_sort_and_dedup_scope_warnings(scope_warnings: &mut Vec<String>) {
+    scope_warnings.sort();
+    scope_warnings.dedup();
+}
+
+fn suggest_fix_for_scope_warning(warning: &str) -> Option<&'static str> {
+    if warning.contains("changed paths are not covered by any known ownership/touches selector") {
+        Some("add `owns` or `touches` selectors for the uncovered paths")
+    } else if warning.contains("active-goal metadata is not complete") {
+        Some("repair `.codex/goals/active.toml` so all active-goal references are valid and ready")
+    } else if warning.contains("documentation-only paths affect non-document surfaces") {
+        Some(
+            "split docs-only work from non-document changes or add implementation-path metadata for touched docs",
+        )
+    } else if warning.contains("path set mixes documentation and implementation files") {
+        Some("split the review scope to avoid docs/implementation mix in one change")
+    } else if warning.contains("workflow file changed but no policy ledger node was impacted") {
+        Some("add or update the impacted `policy_ledger` node for workflow changes")
+    } else if warning
+        .contains("schema change is not linked to a protocol spec/proposal/doc artifact")
+    {
+        Some("link the changed schema to a protocol spec or proposal in atlas metadata")
+    } else if warning.contains("support tier claim changed but no proof command was impacted") {
+        Some("link the changed support-tier claim to a proof command via a `proves` edge")
+    } else if warning.contains("generated artifact changed without an impacted artifact node") {
+        Some("add the generated artifact node and `emits` edge for this output path")
+    } else {
+        None
+    }
+}
+
+fn is_documentation_path(path: &str) -> bool {
+    path == "README.md"
+        || path == "CHANGELOG.md"
+        || path.starts_with("docs/")
+        || path.ends_with(".md")
+        || path.ends_with(".mdx")
+}
+
+fn is_implementation_path(path: &str) -> bool {
+    path.starts_with("crates/")
+        || path.starts_with("src/")
+        || path.starts_with("examples/")
+        || path.ends_with(".rs")
+        || path.ends_with(".yaml")
+        || path.ends_with(".yml")
+        || is_toml_implementation_path(path)
+}
+
+fn is_toml_implementation_path(path: &str) -> bool {
+    matches!(
+        path,
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "clippy.toml"
+            | "rustfmt.toml"
+            | "deny.toml"
+            | ".cargo/config.toml"
+    ) || path.ends_with("/Cargo.toml")
+        || path.ends_with("/Cargo.lock")
+        || path.ends_with("/clippy.toml")
+        || path.ends_with("/rustfmt.toml")
+        || path.ends_with("/deny.toml")
+        || path.ends_with("/.cargo/config.toml")
+}
+
+fn is_workflow_path(path: &str) -> bool {
+    path.starts_with(".github/workflows/")
+}
+
+fn is_schema_path(path: &str) -> bool {
+    path.starts_with("schemas/")
+        || path.starts_with(".schema/")
+        || path.ends_with(".schema.json")
+        || path.ends_with(".schema.yaml")
+        || path.ends_with(".schema.yml")
+        || path.ends_with("/schema.json")
+        || path.ends_with("/schema.yaml")
+        || path.ends_with("/schema.yml")
+}
+
+fn is_support_tier_claim_path(path: &str) -> bool {
+    path.ends_with("SUPPORT_TIERS.md") || path.ends_with("support_tiers.md")
+}
+
+fn is_generated_path(path: &str) -> bool {
+    path.starts_with("target/")
+        || path.starts_with("dist/")
+        || path.starts_with("out/")
+        || path.starts_with("coverage/")
+        || path.starts_with(".cache/")
+        || path.ends_with(".snap")
+        || path.ends_with(".generated.rs")
 }
 
 fn validate_completeness(
@@ -475,6 +1083,10 @@ fn validate_completeness(
 ) {
     let mut outgoing = BTreeMap::<AtlasId, Vec<&AtlasEdge>>::new();
     let mut incoming = BTreeMap::<AtlasId, Vec<&AtlasEdge>>::new();
+    let node_kinds = nodes
+        .iter()
+        .map(|node| (node.id.clone(), node.kind))
+        .collect::<BTreeMap<_, _>>();
 
     for edge in edges {
         outgoing.entry(edge.from.clone()).or_default().push(edge);
@@ -483,12 +1095,18 @@ fn validate_completeness(
 
     for node in nodes {
         let has_any_edge = outgoing.contains_key(&node.id) || incoming.contains_key(&node.id);
+        let has_proof_command = outgoing.get(&node.id).is_some_and(|edges| {
+            edges.iter().any(|edge| {
+                edge.kind == EdgeKind::Proves
+                    && node_kinds
+                        .get(&edge.to)
+                        .copied()
+                        .is_some_and(|to| to == NodeKind::Command)
+            })
+        });
 
         // Infra nodes like crates and operational commands are allowed to be loosely coupled
-        if !has_any_edge
-            && node.kind.role() != atlasctl_types::NodeRole::Infra
-            && node.kind != NodeKind::Command
-        {
+        if !has_any_edge && node.role != NodeRole::Infra && node.role != NodeRole::Command {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::OrphanNode,
                 format!("node `{}` has no relationships in the graph", node.id),
@@ -497,8 +1115,8 @@ fn validate_completeness(
             ));
         }
 
-        match node.kind {
-            NodeKind::Command => {
+        match node.role {
+            NodeRole::Command => {
                 let is_used = incoming
                     .get(&node.id)
                     .map(|edges| edges.iter().any(|edge| edge.kind == EdgeKind::RunsWith))
@@ -513,7 +1131,7 @@ fn validate_completeness(
                     ));
                 }
             }
-            NodeKind::Scenario => {
+            NodeRole::Proof => {
                 if settings.require_scenario_command {
                     let has_command = outgoing
                         .get(&node.id)
@@ -546,7 +1164,7 @@ fn validate_completeness(
                     }
                 }
             }
-            NodeKind::Artifact => {
+            NodeRole::Artifact => {
                 if settings.require_artifact_producer {
                     let has_producer = incoming
                         .get(&node.id)
@@ -563,7 +1181,7 @@ fn validate_completeness(
                     }
                 }
             }
-            NodeKind::Requirement => {
+            NodeRole::Behavior => {
                 if settings.require_requirement_proof {
                     let is_proven = incoming
                         .get(&node.id)
@@ -580,7 +1198,7 @@ fn validate_completeness(
                     }
                 }
             }
-            NodeKind::Crate => {
+            NodeRole::Infra => {
                 if settings.require_crate_scenario {
                     let is_exercised = incoming
                         .get(&node.id)
@@ -595,6 +1213,32 @@ fn validate_completeness(
                             Some(node.provenance.location()),
                         ));
                     }
+                }
+            }
+            _ if node.kind == NodeKind::Claim => {
+                if !has_proof_command {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::ClaimMissingProofCommand,
+                        format!(
+                            "claim `{}` is not linked to any command via a `proves` edge",
+                            node.id
+                        ),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
+                }
+            }
+            _ if node.kind == NodeKind::PolicyLedger => {
+                if !has_proof_command {
+                    diagnostics.push(AtlasDiagnostic::new(
+                        DiagnosticCode::PolicyLedgerMissingProofCommand,
+                        format!(
+                            "policy ledger `{}` is not linked to any command via a `proves` edge",
+                            node.id
+                        ),
+                        Some(node.id.clone()),
+                        Some(node.provenance.location()),
+                    ));
                 }
             }
             _ => {}
@@ -651,10 +1295,10 @@ fn edge_endpoint_is_valid(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atlasctl_ports::DiscoveryPort;
+    use atlasctl_app::DiscoveryPort;
     use atlasctl_types::{
-        AtlasConfig, AtlasEdge, AtlasId, AtlasNode, DiscoveredRepo, NodeKind, PathSelector,
-        Provenance, RepoDescriptor, RepoRelativePath,
+        ActiveGoalConfig, AtlasConfig, AtlasEdge, AtlasId, AtlasNode, ChangedPath, DiscoveredRepo,
+        NodeKind, PathSelector, Provenance, RepoDescriptor, RepoRelativePath,
     };
     use proptest::proptest;
     use std::collections::BTreeMap;
@@ -678,6 +1322,23 @@ mod tests {
             from: AtlasId::parse(from).expect("valid from"),
             kind,
             to: AtlasId::parse(to).expect("valid to"),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+        }
+    }
+
+    fn node_with_touches(id: &str, kind: NodeKind, touches: &[&str]) -> AtlasNode {
+        AtlasNode {
+            id: AtlasId::parse(id).expect("valid id"),
+            role: kind.role(),
+            kind,
+            title: id.to_string(),
+            summary: None,
+            owns: vec![],
+            touches: touches
+                .iter()
+                .map(|touch| PathSelector::new(*touch))
+                .collect(),
+            attrs: BTreeMap::new(),
             provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
         }
     }
@@ -774,8 +1435,8 @@ mod tests {
     /// AND all diagnostics should be empty (no errors or warnings)
     #[test]
     fn scenario_build_complete_atlas_from_valid_minimal_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
@@ -823,8 +1484,8 @@ mod tests {
     /// AND the invalid edge should be excluded from the graph
     #[test]
     fn scenario_detect_broken_references_from_broken_link_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/broken-link");
@@ -871,8 +1532,8 @@ mod tests {
     /// AND only the first node should be included in the graph
     #[test]
     fn scenario_detect_duplicate_ids_from_duplicate_id_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/duplicate-id");
@@ -921,8 +1582,8 @@ mod tests {
     /// THEN diagnostics should be emitted for missing command and crate edges
     #[test]
     fn scenario_detect_orphan_scenarios_from_orphan_scenario_fixture() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/orphan-scenario");
@@ -965,6 +1626,1116 @@ mod tests {
         assert!(graph.metrics.error_count >= 2);
     }
 
+    /// SCENARIO: Touch-path overlap is allowed across separate nodes
+    ///
+    /// GIVEN two scenario nodes that both touch the same path
+    /// WHEN the atlas is compiled
+    /// THEN there should be no duplicate_ownership diagnostics
+    #[test]
+    fn scenario_overlapping_touches_are_allowed() {
+        let mut node_one = node("scen:touch-one", NodeKind::Scenario);
+        node_one.owns.clear();
+        node_one.touches = vec![PathSelector::new("crates/engine/src/lib.rs")];
+
+        let mut node_two = node("scen:touch-two", NodeKind::Scenario);
+        node_two.owns.clear();
+        node_two.touches = vec![PathSelector::new("crates/engine/src/lib.rs")];
+
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![node_one, node_two, node("cmd:test", NodeKind::Command)],
+            edges: vec![
+                edge("scen:touch-one", EdgeKind::RunsWith, "cmd:test"),
+                edge("scen:touch-two", EdgeKind::RunsWith, "cmd:test"),
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+
+        let has_duplicate = graph
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::DuplicateOwnership);
+
+        assert!(
+            !has_duplicate,
+            "touch-overlapping nodes should not trigger duplicate ownership"
+        );
+    }
+
+    /// SCENARIO: Infra nodes are exempt from behavior/proof ownership checks
+    ///
+    /// GIVEN a crate node with no outgoing/incoming edges
+    /// WHEN the atlas is compiled
+    /// THEN no behavior/proof-only completeness diagnostics should apply
+    #[test]
+    fn scenario_infra_node_without_graph_connections_is_allowed() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![AtlasNode {
+                id: AtlasId::parse("crate:engine").expect("valid atlas id"),
+                kind: NodeKind::Crate,
+                role: NodeKind::Crate.role(),
+                title: "engine".to_string(),
+                summary: None,
+                owns: vec![PathSelector::new("crates/engine/src/lib.rs")],
+                touches: Vec::new(),
+                attrs: BTreeMap::new(),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        let infra_errors: Vec<_> = graph
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.code,
+                    DiagnosticCode::ScenarioMissingCommand | DiagnosticCode::ScenarioMissingCrate
+                )
+            })
+            .collect();
+
+        assert!(
+            infra_errors.is_empty(),
+            "infra nodes should not emit behavior/proof diagnostics"
+        );
+    }
+
+    #[test]
+    fn active_goal_missing_plan_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: None,
+                    proposal: Some("proposal:release-plan".to_string()),
+                    spec: Some("spec:release-spec".to_string()),
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                node("scen:plan-release", NodeKind::Scenario),
+                node("cmd:release", NodeKind::Command),
+                node("proposal:release-plan", NodeKind::Proposal),
+                node("spec:release-spec", NodeKind::Spec),
+            ],
+            diagnostics: vec![],
+            edges: vec![AtlasEdge {
+                from: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                kind: EdgeKind::RunsWith,
+                to: AtlasId::parse("cmd:release").expect("command id"),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ActiveGoalMissingPlan),
+            "active goal with no plan should emit missing plan"
+        );
+    }
+
+    #[test]
+    fn active_goal_missing_ready_work_items_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: None,
+                    spec: None,
+                    ready_work_items: vec![],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![node("plan:release-1", NodeKind::Plan)],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ActiveGoalMissingReadyWorkItems),
+            "active goal with no ready work items should emit warning"
+        );
+    }
+
+    #[test]
+    fn active_goal_work_item_missing_proof_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: None,
+                    spec: None,
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                node("scen:plan-release", NodeKind::Scenario),
+                node("plan:release-1", NodeKind::Plan),
+            ],
+            edges: vec![],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::ActiveGoalWorkItemMissingProof),
+            "active goal work item without runs_with should emit missing proof"
+        );
+    }
+
+    #[test]
+    fn active_goal_goal_reference_is_validated() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:missing-goal".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: None,
+                    spec: None,
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("plan:release-1").expect("plan id"),
+                    kind: NodeKind::Plan,
+                    role: NodeKind::Plan.role(),
+                    title: "release plan".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("plans/rel-plan.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                    kind: NodeKind::Scenario,
+                    role: NodeKind::Scenario.role(),
+                    title: "plan release".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("cmd:plan-release").expect("command id"),
+                    kind: NodeKind::Command,
+                    role: NodeKind::Command.role(),
+                    title: "plan release".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            edges: vec![AtlasEdge {
+                from: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                kind: EdgeKind::RunsWith,
+                to: AtlasId::parse("cmd:plan-release").expect("command id"),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == DiagnosticCode::BrokenReference),
+            "active goal references a missing goal node should emit broken reference"
+        );
+    }
+
+    #[test]
+    fn active_goal_references_and_nodes_are_validated() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig {
+                active_goal: Some(ActiveGoalConfig {
+                    goal: Some("goal:operationalize-atlas".to_string()),
+                    plan: Some("plan:release-1".to_string()),
+                    proposal: Some("proposal:release-plan".to_string()),
+                    spec: Some("spec:release-spec".to_string()),
+                    ready_work_items: vec!["scen:plan-release".to_string()],
+                }),
+                ..AtlasConfig::default()
+            },
+            nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("goal:operationalize-atlas").expect("goal id"),
+                    kind: NodeKind::Goal,
+                    role: NodeKind::Goal.role(),
+                    title: "goal for active work".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("goals/active.md")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/active.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("plan:release-1").expect("plan id"),
+                    kind: NodeKind::Plan,
+                    role: NodeKind::Plan.role(),
+                    title: "release plan".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("plans/rel-plan.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("proposal:release-plan").expect("proposal id"),
+                    kind: NodeKind::Proposal,
+                    role: NodeKind::Proposal.role(),
+                    title: "release proposal".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/proposals/release.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposals/release.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("spec:release-spec").expect("spec id"),
+                    kind: NodeKind::Spec,
+                    role: NodeKind::Spec.role(),
+                    title: "release spec".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/specs/release.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/specs/release.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                    kind: NodeKind::Scenario,
+                    role: NodeKind::Scenario.role(),
+                    title: "plan release".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("plans/rel-plan.md")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("cmd:plan-release").expect("command id"),
+                    kind: NodeKind::Command,
+                    role: NodeKind::Command.role(),
+                    title: "ci".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("crates/engine/src/main.rs")],
+                    touches: vec![],
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("plan:release-1").expect("plan id"),
+                    kind: EdgeKind::Defines,
+                    to: AtlasId::parse("proposal:release-plan").expect("proposal id"),
+                    provenance: Provenance::new(RepoRelativePath::new("plans/rel-plan.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("proposal:release-plan").expect("proposal id"),
+                    kind: EdgeKind::Requires,
+                    to: AtlasId::parse("spec:release-spec").expect("spec id"),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposals/release.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("scen:plan-release").expect("scenario id"),
+                    kind: EdgeKind::RunsWith,
+                    to: AtlasId::parse("cmd:plan-release").expect("command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph.diagnostics.iter().all(|diag| !matches!(
+                diag.code,
+                DiagnosticCode::BrokenReference | DiagnosticCode::InvalidId
+            )),
+            "proposal and spec links should resolve"
+        );
+    }
+
+    #[test]
+    fn compiles_source_truth_stack_nodes_and_edges() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                AtlasNode {
+                    id: AtlasId::parse("roadmap:local-first-stack").expect("valid id"),
+                    kind: NodeKind::Roadmap,
+                    role: NodeKind::Roadmap.role(),
+                    title: "Local-first source-of-truth stack".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/roadmap")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/roadmap.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("proposal:ship-source-of-truth").expect("valid id"),
+                    kind: NodeKind::Proposal,
+                    role: NodeKind::Proposal.role(),
+                    title: "Ship source-of-truth".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/proposals")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposal.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("spec:source-of-truth").expect("valid id"),
+                    kind: NodeKind::Spec,
+                    role: NodeKind::Spec.role(),
+                    title: "Source-of-truth spec".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("docs/specs")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/spec.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("goal:operationalize-atlas").expect("valid id"),
+                    kind: NodeKind::Goal,
+                    role: NodeKind::Goal.role(),
+                    title: "Operationalize atlas".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("atlas/example.atlas.yaml")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/goal.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("support_tier:docs-support").expect("valid id"),
+                    kind: NodeKind::SupportTier,
+                    role: NodeKind::SupportTier.role(),
+                    title: "Docs support tier".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("README.md")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("policy_ledger:review-guardrails").expect("valid id"),
+                    kind: NodeKind::PolicyLedger,
+                    role: NodeKind::PolicyLedger.role(),
+                    title: "Review guardrails policy".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new(".github/workflows")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("policy/workspace.md")),
+                },
+                AtlasNode {
+                    id: AtlasId::parse("closeout:release-01").expect("valid id"),
+                    kind: NodeKind::Closeout,
+                    role: NodeKind::Closeout.role(),
+                    title: "Closeout for release 0.1".to_string(),
+                    summary: None,
+                    owns: vec![PathSelector::new("CHANGELOG.md")],
+                    touches: Vec::new(),
+                    attrs: BTreeMap::new(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/closeout.md")),
+                },
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("roadmap:local-first-stack").unwrap(),
+                    kind: EdgeKind::Defines,
+                    to: AtlasId::parse("proposal:ship-source-of-truth").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/roadmap.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("proposal:ship-source-of-truth").unwrap(),
+                    kind: EdgeKind::Requires,
+                    to: AtlasId::parse("spec:source-of-truth").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/proposal.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("spec:source-of-truth").unwrap(),
+                    kind: EdgeKind::Decides,
+                    to: AtlasId::parse("goal:operationalize-atlas").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/spec.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("goal:operationalize-atlas").unwrap(),
+                    kind: EdgeKind::Claims,
+                    to: AtlasId::parse("support_tier:docs-support").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/goal.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("support_tier:docs-support").unwrap(),
+                    kind: EdgeKind::Governs,
+                    to: AtlasId::parse("policy_ledger:review-guardrails").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("goal:operationalize-atlas").unwrap(),
+                    kind: EdgeKind::ActiveFor,
+                    to: AtlasId::parse("support_tier:docs-support").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("goals/goal.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("spec:source-of-truth").unwrap(),
+                    kind: EdgeKind::Closes,
+                    to: AtlasId::parse("closeout:release-01").unwrap(),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/spec.md")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert_eq!(graph.nodes.len(), 7);
+        assert_eq!(graph.edges.len(), 7);
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.id.as_str() == "goal:operationalize-atlas")
+        );
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .all(|diag| diag.severity != Severity::Error)
+        );
+    }
+
+    #[test]
+    fn claim_without_proof_command_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("claim:docs-readme-accuracy", NodeKind::Claim),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+                node("req:missing-proof", NodeKind::Requirement),
+                node("spec:source-of-truth", NodeKind::Spec),
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Supports,
+                    to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("req:missing-proof").expect("valid requirement id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("support_tier:docs-support")
+                        .expect("valid support tier id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("spec:source-of-truth").expect("valid spec id"),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/README.md")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::ClaimMissingProofCommand),
+            "claim without command proof should emit a warning"
+        );
+    }
+
+    #[test]
+    fn claim_with_command_proof_is_supported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("claim:docs-readme-accuracy", NodeKind::Claim),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+                node("cmd:docs-proof", NodeKind::Command),
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Supports,
+                    to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("claim:docs-readme-accuracy").expect("valid claim id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("cmd:docs-proof").expect("valid command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("README.md")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("support_tier:docs-support")
+                        .expect("valid support tier id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("cmd:docs-proof").expect("valid command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("docs/README.md")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            !graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::ClaimMissingProofCommand),
+            "claim with command proof should not emit proof warning"
+        );
+    }
+
+    #[test]
+    fn policy_ledger_without_proof_command_is_reported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("policy_ledger:ci-review", NodeKind::PolicyLedger),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+            ],
+            edges: vec![AtlasEdge {
+                from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                kind: EdgeKind::Governs,
+                to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+            }],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::PolicyLedgerMissingProofCommand),
+            "policy ledger without proof command should emit a warning"
+        );
+    }
+
+    #[test]
+    fn policy_ledger_with_command_proof_is_supported() {
+        let repo = DiscoveredRepo {
+            repo: RepoDescriptor {
+                name: "sample".to_string(),
+            },
+            config: AtlasConfig::default(),
+            nodes: vec![
+                node("policy_ledger:ci-review", NodeKind::PolicyLedger),
+                node("support_tier:docs-support", NodeKind::SupportTier),
+                node("cmd:policy-audit", NodeKind::Command),
+            ],
+            edges: vec![
+                AtlasEdge {
+                    from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                    kind: EdgeKind::Governs,
+                    to: AtlasId::parse("support_tier:docs-support").expect("valid support tier id"),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+                AtlasEdge {
+                    from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                    kind: EdgeKind::Proves,
+                    to: AtlasId::parse("cmd:policy-audit").expect("valid command id"),
+                    provenance: Provenance::new(RepoRelativePath::new("atlas/example.atlas.yaml")),
+                },
+            ],
+            diagnostics: vec![],
+        };
+
+        let graph = compile_atlas(repo, ValidationProfile::Default);
+        assert!(
+            !graph
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::PolicyLedgerMissingProofCommand),
+            "policy ledger with command proves edge should not emit policy proof warning"
+        );
+    }
+
+    #[test]
+    fn policy_ledger_surface_change_impacts_governed_nodes() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![
+                    node_with_touches(
+                        "policy_ledger:ci-review",
+                        NodeKind::PolicyLedger,
+                        &["docs/**/*.md", ".github/workflows/*.yml"],
+                    ),
+                    node("support_tier:docs-support", NodeKind::SupportTier),
+                    node("cmd:policy-audit", NodeKind::Command),
+                ],
+                edges: vec![
+                    AtlasEdge {
+                        from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                        kind: EdgeKind::Governs,
+                        to: AtlasId::parse("support_tier:docs-support").expect("valid support id"),
+                        provenance: Provenance::new(RepoRelativePath::new(
+                            "atlas/example.atlas.yaml",
+                        )),
+                    },
+                    AtlasEdge {
+                        from: AtlasId::parse("policy_ledger:ci-review").expect("valid policy id"),
+                        kind: EdgeKind::Proves,
+                        to: AtlasId::parse("cmd:policy-audit").expect("valid command id"),
+                        provenance: Provenance::new(RepoRelativePath::new(
+                            "atlas/example.atlas.yaml",
+                        )),
+                    },
+                ],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/guides/onboarding.md".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|h| h.node.id.as_str() == "policy_ledger:ci-review")
+        );
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|h| h.node.id.as_str() == "support_tier:docs-support")
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_workflow_change_without_policy_ledgers() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: ".github/workflows/ci.yml".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("workflow file changed but no policy ledger"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_schema_change_without_protocol_nodes() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "schemas/atlas.schema.json".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("schema change is not linked to a protocol spec"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_support_tier_claim_change_without_command() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node_with_touches(
+                    "support_tier:docs-support",
+                    NodeKind::SupportTier,
+                    &["docs/status/SUPPORT_TIERS.md"],
+                )],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/status/SUPPORT_TIERS.md".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("support tier claim changed but no proof command"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_generated_artifact_change_without_artifact_node() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "target/debug/build-output.json".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("generated artifact changed"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_suggested_fixes_are_included() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: ".github/workflows/ci.yml".into(),
+                    owners: vec![],
+                },
+                ChangedPath {
+                    path: "schemas/atlas.schema.json".into(),
+                    owners: vec![],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("workflow file changed but no policy ledger"))
+        );
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("schema change is not linked to a protocol spec"))
+        );
+        assert!(
+            response
+                .suggested_fixes
+                .iter()
+                .any(|fix| fix.contains("workflow changes"))
+        );
+        assert!(
+            response
+                .suggested_fixes
+                .iter()
+                .any(|fix| fix.contains("link the changed schema"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_suggests_covering_uncovered_paths() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/atlasctl-core/src/new-module.rs".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("changed paths are not covered"))
+        );
+        assert!(response.suggested_fixes.iter().any(|fix| {
+            fix.contains("add `owns` or `touches` selectors for the uncovered paths")
+        }));
+    }
+
+    #[test]
+    fn scope_warning_for_docs_only_paths_with_non_document_impacts() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node_with_touches(
+                    "scen:example-build",
+                    NodeKind::Scenario,
+                    &["docs/implementation-plan.md"],
+                )],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/implementation-plan.md".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(response.scope_warnings.iter().any(|warning| {
+            warning.contains("documentation-only paths affect non-document surfaces")
+        }));
+    }
+
+    #[test]
+    fn impacted_analysis_orders_and_dedups_paths_stably() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: "zeta/path.txt".into(),
+                    owners: vec![],
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec![],
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec![],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+
+        let response = impacted_graph(&graph, &request);
+
+        assert_eq!(
+            response
+                .changed_paths
+                .iter()
+                .map(|path| path.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha/path.txt", "zeta/path.txt"]
+        );
+        assert_eq!(
+            response
+                .uncovered
+                .iter()
+                .map(|path| path.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha/path.txt", "zeta/path.txt"]
+        );
+    }
+
+    #[test]
+    fn impacted_analysis_merges_duplicate_path_owners() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec!["@alpha".to_string()],
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec!["@bravo".to_string()],
+                },
+                ChangedPath {
+                    path: "alpha/path.txt".into(),
+                    owners: vec!["@alpha".to_string()],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+
+        let response = impacted_graph(&graph, &request);
+
+        assert_eq!(response.changed_paths.len(), 1);
+        assert_eq!(
+            response.changed_paths[0].owners,
+            vec!["@alpha".to_string(), "@bravo".to_string()]
+        );
+        assert_eq!(response.uncovered.len(), 1);
+        assert_eq!(
+            response.uncovered[0].owners,
+            vec!["@alpha".to_string(), "@bravo".to_string()]
+        );
+    }
+
     /// SCENARIO: Querying the atlas with different search terms
     ///
     /// GIVEN a compiled atlas from a valid minimal fixture
@@ -973,8 +2744,8 @@ mod tests {
     /// AND exact ID matches should have the highest score
     #[test]
     fn scenario_query_with_different_search_terms() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
@@ -1054,8 +2825,8 @@ mod tests {
     /// AND depth should be respected
     #[test]
     fn scenario_trace_with_different_directions() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/valid-minimal");
@@ -1137,8 +2908,8 @@ mod tests {
     /// AND strict profile should escalate warnings to errors
     #[test]
     fn scenario_validation_with_different_profiles() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/orphan-scenario");
@@ -1364,11 +3135,19 @@ mod tests {
             let id = AtlasId::parse(&id_str).unwrap_or_else(|_| AtlasId::parse("req:default").unwrap());
             let kind = match id.kind_prefix() {
                 "req" => NodeKind::Requirement,
+                "roadmap" => NodeKind::Roadmap,
+                "proposal" => NodeKind::Proposal,
+                "spec" => NodeKind::Spec,
                 "scen" => NodeKind::Scenario,
                 "cmd" => NodeKind::Command,
                 "crate" => NodeKind::Crate,
                 "artifact" => NodeKind::Artifact,
                 "adr" => NodeKind::Adr,
+                "plan" => NodeKind::Plan,
+                "goal" => NodeKind::Goal,
+                "support_tier" => NodeKind::SupportTier,
+                "policy_ledger" => NodeKind::PolicyLedger,
+                "closeout" => NodeKind::Closeout,
                 "guide" => NodeKind::Guide,
                 "fixture" => NodeKind::Fixture,
                 "doc" => NodeKind::Document,
@@ -1737,6 +3516,9 @@ mod tests {
                     "cmd" => NodeKind::Command,
                     "crate" => NodeKind::Crate,
                     "artifact" => NodeKind::Artifact,
+                    "goal" => NodeKind::Goal,
+                    "plan" => NodeKind::Plan,
+                    "spec" => NodeKind::Spec,
                     _ => NodeKind::Requirement,
                 };
                 Some(AtlasNode {
@@ -1795,11 +3577,15 @@ mod tests {
 #[cfg(test)]
 mod golden {
     use super::*;
+    use atlasctl_app::{DiscoverRequest, DiscoveryPort, RenderPort};
     use atlasctl_discover_fs::FsDiscovery;
     use atlasctl_fixtures::repo;
-    use atlasctl_ports::{DiscoverRequest, DiscoveryPort, RenderPort};
     use atlasctl_render::AtlasRenderer;
-    use atlasctl_types::{ChangedPath, RenderFormat, WhyRequest, WhySubject};
+    use atlasctl_types::{
+        AtlasEdge, AtlasId, AtlasNode, ChangedPath, EdgeKind, NodeKind, NodeRole, PathSelector,
+        Provenance, RenderFormat, RepoRelativePath, WhyRequest, WhySubject,
+    };
+    use serde_json::{Value, json};
 
     const FIXTURES: &[&str] = &[
         "valid-minimal",
@@ -1856,6 +3642,83 @@ mod golden {
     }
 
     #[test]
+    fn scenario_why_by_path_prefers_owning_match_over_touch_match() {
+        let mut graph = build_atlas("valid-minimal");
+        let owning_id = AtlasId::parse("req:owning-match").unwrap();
+        graph.nodes.push(AtlasNode {
+            id: owning_id.clone(),
+            kind: NodeKind::Requirement,
+            role: NodeRole::Behavior,
+            title: "Owning matcher".to_string(),
+            summary: None,
+            owns: vec![PathSelector::new("docs/**/*.md")],
+            touches: vec![],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/why-rank.atlas.yaml")),
+        });
+        let touching_id = AtlasId::parse("scen:touching-match").unwrap();
+        graph.nodes.push(AtlasNode {
+            id: touching_id,
+            kind: NodeKind::Scenario,
+            role: NodeRole::Proof,
+            title: "Touching matcher".to_string(),
+            summary: None,
+            owns: vec![],
+            touches: vec![PathSelector::new("docs/**/*.md")],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/why-rank.atlas.yaml")),
+        });
+
+        let response = why_graph(
+            &graph,
+            &WhyRequest {
+                subject: WhySubject::Path(RepoRelativePath::new("docs/guide/overview.md")),
+            },
+        )
+        .expect("response");
+        assert_eq!(response.root.id.as_str(), "req:owning-match");
+    }
+
+    #[test]
+    fn why_chain_includes_provenance_of_claim() {
+        let mut graph = build_atlas("valid-minimal");
+        let claim_id = AtlasId::parse("claim:why-readme").unwrap();
+        let cmd_id = AtlasId::parse("cmd:ci-fast").unwrap();
+        graph.nodes.push(AtlasNode {
+            id: claim_id.clone(),
+            kind: NodeKind::Claim,
+            role: NodeRole::Document,
+            title: "Why README claim".to_string(),
+            summary: None,
+            owns: vec![PathSelector::new("README.md")],
+            touches: vec![],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("README.md")),
+        });
+        graph.edges.push(AtlasEdge {
+            from: claim_id.clone(),
+            kind: EdgeKind::Proves,
+            to: cmd_id.clone(),
+            provenance: Provenance::new(RepoRelativePath::new("README.md")),
+        });
+
+        let response = why_graph(
+            &graph,
+            &WhyRequest {
+                subject: WhySubject::Id(claim_id),
+            },
+        )
+        .expect("response");
+
+        assert!(
+            response
+                .chain
+                .iter()
+                .any(|step| step.relationship == EdgeKind::Proves && step.node.id == cmd_id)
+        );
+    }
+
+    #[test]
     fn portability_no_absolute_paths_in_output() {
         let graph = build_atlas("valid-minimal");
         let json = serde_json::to_string(&graph).unwrap();
@@ -1864,6 +3727,41 @@ mod golden {
         // This is a simple heuristic but effective for regression
         assert!(!json.contains(":\\\\"), "Found Windows absolute path");
         assert!(!json.contains("\":/"), "Found POSIX absolute path");
+
+        let renderer = AtlasRenderer;
+        let why = {
+            let request = WhyRequest {
+                subject: WhySubject::Id(AtlasId::parse("scen:example-build").unwrap()),
+            };
+            render_why_json(&renderer, &graph, &request)
+        };
+        assert!(
+            !why.contains(":\\\\"),
+            "Found Windows absolute path in why.json"
+        );
+        assert!(
+            !why.contains("\":/"),
+            "Found POSIX absolute path in why.json"
+        );
+
+        let impact = {
+            let request = ImpactRequest {
+                paths: vec![ChangedPath {
+                    path: "crates/engine/src/lib.rs".into(),
+                    owners: vec![],
+                }],
+                owners: BTreeMap::new(),
+            };
+            render_impact_json(&renderer, &graph, &request)
+        };
+        assert!(
+            !impact.contains(":\\\\"),
+            "Found Windows absolute path in impact.json"
+        );
+        assert!(
+            !impact.contains("\":/"),
+            "Found POSIX absolute path in impact.json"
+        );
     }
 
     #[test]
@@ -1891,6 +3789,7 @@ mod golden {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "crates/engine".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -1917,6 +3816,7 @@ mod golden {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "unknown/file.txt".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -1928,8 +3828,8 @@ mod golden {
 
     #[test]
     fn scenario_validation_with_new_classes() {
+        use atlasctl_app::DiscoverRequest;
         use atlasctl_discover_fs::FsDiscovery;
-        use atlasctl_ports::DiscoverRequest;
         use camino::Utf8PathBuf;
 
         let repo_root = Utf8PathBuf::from("../../fixtures/repos/requirement-unproven");
@@ -1959,6 +3859,17 @@ mod golden {
                 .any(|d| d.code == DiagnosticCode::UncoveredCrate)
         );
         assert!(graph.metrics.error_count >= 2);
+    }
+
+    #[test]
+    fn classify_file_types_for_scope() {
+        assert!(is_implementation_path("crates/atlasctl-core/src/lib.rs"));
+        assert!(is_implementation_path("src/main.rs"));
+        assert!(is_implementation_path("examples/demo/example.rs"));
+        assert!(is_implementation_path("Cargo.toml"));
+        assert!(!is_implementation_path("docs/architecture.md"));
+        assert!(!is_implementation_path("policy/release/review.toml"));
+        assert!(is_implementation_path("atlas/core.atlas.yaml"));
     }
 
     #[test]
@@ -2005,6 +3916,17 @@ mod golden {
         insta::assert_snapshot!("golden/why.md", md);
 
         let json = renderer.render_why(&response, RenderFormat::Json).unwrap();
+        let json_value: Value =
+            serde_json::from_str(&json).expect("why output should be valid JSON envelope");
+        assert_eq!(
+            json_value.get("schema_version").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            json_value.get("command").and_then(Value::as_str),
+            Some("why")
+        );
+        assert!(json_value.get("payload").is_some());
         insta::assert_snapshot!("golden/why.json", json);
     }
 
@@ -2015,6 +3937,7 @@ mod golden {
         let request = ImpactRequest {
             paths: vec![ChangedPath {
                 path: "crates/engine/src/lib.rs".into(),
+                owners: vec![],
             }],
             owners: BTreeMap::new(),
         };
@@ -2028,6 +3951,17 @@ mod golden {
         let json = renderer
             .render_impact(&response, RenderFormat::Json)
             .unwrap();
+        let json_value: Value =
+            serde_json::from_str(&json).expect("impact output should be valid JSON envelope");
+        assert_eq!(
+            json_value.get("schema_version").and_then(Value::as_u64),
+            Some(1)
+        );
+        assert_eq!(
+            json_value.get("command").and_then(Value::as_str),
+            Some("impacted")
+        );
+        assert!(json_value.get("payload").is_some());
         insta::assert_snapshot!("golden/impact.json", json);
 
         let summary = renderer
@@ -2039,5 +3973,57 @@ mod golden {
             .render_impact(&response, RenderFormat::ReviewPacket)
             .unwrap();
         insta::assert_snapshot!("golden/impact-packet.md", packet);
+    }
+
+    #[test]
+    fn impact_json_includes_changed_path_owners() {
+        let renderer = AtlasRenderer;
+        let graph = build_atlas("valid-minimal");
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/engine/src/lib.rs".into(),
+                owners: vec!["@ownerscope".to_string()],
+            }],
+            owners: BTreeMap::new(),
+        };
+
+        let json = render_impact_json(&renderer, &graph, &request);
+        let value: Value =
+            serde_json::from_str(&json).expect("impact output should be valid JSON envelope");
+
+        let changed_paths = value
+            .get("payload")
+            .and_then(|payload| payload.get("changed_paths"))
+            .and_then(Value::as_array)
+            .expect("payload.changed_paths should be an array");
+        let first = changed_paths
+            .first()
+            .expect("changed paths should include at least one path");
+
+        assert_eq!(
+            first.get("path").and_then(Value::as_str),
+            Some("crates/engine/src/lib.rs")
+        );
+        assert_eq!(first.get("owners"), Some(&json!(["@ownerscope"])));
+    }
+
+    fn render_why_json(
+        renderer: &AtlasRenderer,
+        graph: &AtlasGraph,
+        request: &WhyRequest,
+    ) -> String {
+        let response = why_graph(graph, request).expect("why response");
+        renderer.render_why(&response, RenderFormat::Json).unwrap()
+    }
+
+    fn render_impact_json(
+        renderer: &AtlasRenderer,
+        graph: &AtlasGraph,
+        request: &ImpactRequest,
+    ) -> String {
+        let response = impacted_graph(graph, request);
+        renderer
+            .render_impact(&response, RenderFormat::Json)
+            .unwrap()
     }
 }

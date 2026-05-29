@@ -86,9 +86,7 @@ dependencies = [
 name = "atlasctl-app"
 version = "0.1.0"
 dependencies = [
- "atlasctl-codes",
  "atlasctl-core",
- "atlasctl-ports",
  "atlasctl-types",
  "camino",
  "thiserror",
@@ -100,9 +98,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "atlasctl-app",
- "atlasctl-codes",
  "atlasctl-discover-fs",
- "atlasctl-ports",
  "atlasctl-render",
  "atlasctl-types",
  "camino",
@@ -113,21 +109,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "atlasctl-codes"
-version = "0.1.0"
-dependencies = [
- "schemars",
- "serde",
-]
-
-[[package]]
 name = "atlasctl-core"
 version = "0.1.0"
 dependencies = [
- "atlasctl-codes",
+ "atlasctl-app",
  "atlasctl-discover-fs",
  "atlasctl-fixtures",
- "atlasctl-ports",
  "atlasctl-render",
  "atlasctl-types",
  "camino",
@@ -141,8 +128,7 @@ dependencies = [
 name = "atlasctl-discover-fs"
 version = "0.1.0"
 dependencies = [
- "atlasctl-codes",
- "atlasctl-ports",
+ "atlasctl-app",
  "atlasctl-types",
  "camino",
  "cargo_metadata",
@@ -163,19 +149,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "atlasctl-ports"
-version = "0.1.0"
-dependencies = [
- "atlasctl-types",
- "camino",
- "thiserror",
-]
-
-[[package]]
 name = "atlasctl-render"
 version = "0.1.0"
 dependencies = [
- "atlasctl-ports",
+ "atlasctl-app",
  "atlasctl-types",
  "serde_json",
 ]
@@ -184,7 +161,6 @@ dependencies = [
 name = "atlasctl-types"
 version = "0.1.0"
 dependencies = [
- "atlasctl-codes",
  "camino",
  "schemars",
  "serde",

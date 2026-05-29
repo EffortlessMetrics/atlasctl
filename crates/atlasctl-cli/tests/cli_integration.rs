@@ -5,6 +5,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
+use std::process::Command as StdCommand;
 use tempfile::TempDir;
 
 // Helper to get path to a fixture repo
@@ -48,6 +49,110 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("git command should execute");
+    assert!(
+        output.status.success(),
+        "git command failed: git {}\\nstdout: {}\\nstderr: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn git_with_config(dir: &Path, args: &[&str]) {
+    let status = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .status()
+        .expect("git command should execute");
+    assert!(
+        status.success(),
+        "git command failed: git {}",
+        args.join(" ")
+    );
+}
+
+fn setup_temp_git_fixture() -> (TempDir, String, String) {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let repo_root = temp_dir.path();
+
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "init",
+        ],
+    );
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "add",
+            ".",
+        ],
+    );
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "commit",
+            "-m",
+            "seed base snapshot",
+        ],
+    );
+    let base = git(repo_root, &["rev-parse", "HEAD"]);
+
+    let engine_file = repo_root.join("crates/engine/src/lib.rs");
+    fs::write(
+        &engine_file,
+        fs::read_to_string(&engine_file).unwrap() + "\n// atlasctl fixture edit\n",
+    )
+    .unwrap();
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "add",
+            "crates/engine/src/lib.rs",
+        ],
+    );
+    git_with_config(
+        repo_root,
+        &[
+            "-c",
+            "user.name=atlasctl-ci",
+            "-c",
+            "user.email=atlasctl-ci@example.com",
+            "commit",
+            "-m",
+            "touch engine source",
+        ],
+    );
+    let head = git(repo_root, &["rev-parse", "HEAD"]);
+
+    (temp_dir, base, head)
 }
 
 // ============================================================================
@@ -457,6 +562,43 @@ fn test_why_by_path() {
 }
 
 #[test]
+fn test_why_by_policy_path() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git"]
+"#;
+    std::fs::write(temp_dir.path().join("atlas.toml"), atlas_config).unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("policy")).unwrap();
+    let policy_file = r#"
+[atlas]
+id = "policy_ledger:cli-policy"
+kind = "policy_ledger"
+title = "CLI policy test"
+summary = "Policy ledger for CLI integration tests."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:docs-check"]
+"#;
+    std::fs::write(temp_dir.path().join("policy/cli-policy.toml"), policy_file).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "policy/cli-policy.toml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Node: policy_ledger:cli-policy"));
+}
+
+#[test]
 fn test_why_markdown_format() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -616,6 +758,25 @@ fn test_impacted_by_paths() {
 }
 
 #[test]
+fn test_impacted_by_multiple_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "atlas/example.atlas.yaml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Impact Analysis:"));
+}
+
+#[test]
 fn test_impacted_uncovered() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -631,7 +792,49 @@ fn test_impacted_uncovered() {
         .assert()
         .success()
         .stdout(predicate::str::contains("uncovered changes: 1"))
+        .stdout(predicate::str::contains("status: warnings"))
         .stdout(predicate::str::contains("- unknown/file.txt"));
+}
+
+#[test]
+fn test_impacted_uncovered_ci_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "ci",
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("status: warnings"))
+        .stdout(predicate::str::contains("- unknown/file.txt"));
+}
+
+#[test]
+fn test_impacted_uncovered_strict_error() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "strict",
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("status: errors"));
 }
 
 #[test]
@@ -652,7 +855,135 @@ fn test_impacted_review_packet() {
         .assert()
         .success()
         .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
-        .stdout(predicate::str::contains("## 🎯 Impacted Proof Surface"));
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"));
+}
+
+#[test]
+fn test_impacted_review_packet_with_base_head() {
+    let (temp_dir, base, head) = setup_temp_git_fixture();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--base",
+            base.as_str(),
+            "--head",
+            head.as_str(),
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
+}
+
+#[test]
+fn test_impacted_review_packet_includes_policy_ledger_from_policy_path() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git"]
+"#;
+    std::fs::write(temp_dir.path().join("atlas.toml"), atlas_config).unwrap();
+    std::fs::create_dir_all(temp_dir.path().join("policy")).unwrap();
+    let policy_file = r#"
+ [atlas]
+id = "policy_ledger:cli-policy"
+kind = "policy_ledger"
+title = "CLI policy test"
+summary = "Policy ledger for CLI integration tests."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:docs-check"]
+"#;
+    std::fs::write(temp_dir.path().join("policy/cli-policy.toml"), policy_file).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "policy/cli-policy.toml",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("policy_ledger:cli-policy"));
+}
+
+#[test]
+fn test_review_packet_with_base_head() {
+    let (temp_dir, base, head) = setup_temp_git_fixture();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--base",
+            base.as_str(),
+            "--head",
+            head.as_str(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
+}
+
+#[test]
+fn test_review_packet_command() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"));
+}
+
+#[test]
+fn test_review_packet_multiple_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine",
+            "atlas/example.atlas.yaml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"));
 }
 
 // ============================================================================
@@ -930,6 +1261,180 @@ fn test_scaffold_artifact() {
     assert!(content.contains("id: artifact:new-artifact"));
 }
 
+#[test]
+fn test_scaffold_plan_item() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "plan-item",
+            "release-plan",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded plan item"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-plan.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: plan"));
+}
+
+#[test]
+fn test_scaffold_gap() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "requirement_not_proven",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded gap scaffold"));
+
+    let scaffold_file = temp_dir
+        .path()
+        .join("atlas/gap-requirement_not_proven.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: scenario"));
+    assert!(content.contains("proves"));
+    assert!(content.contains("req:todo"));
+}
+
+#[test]
+fn test_scaffold_support_tier() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "support-tier",
+            "release-support",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded support-tier"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-support.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: support_tier"));
+    assert!(content.contains("summary: |"));
+}
+
+#[test]
+fn test_scaffold_policy_ledger() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "policy-ledger",
+            "release-review",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded policy-ledger"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-review.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: policy_ledger"));
+    assert!(content.contains("summary: |"));
+}
+
+#[test]
+fn test_scaffold_closeout() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "closeout",
+            "release-closeout",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded closeout"));
+
+    let scaffold_file = temp_dir.path().join("atlas/release-closeout.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: closeout"));
+    assert!(content.contains("id: closeout:release-closeout"));
+}
+
+#[test]
+fn test_scaffold_gap_claim_missing_proof_command() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "claim_missing_proof_command",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded gap scaffold"));
+
+    let scaffold_file = temp_dir
+        .path()
+        .join("atlas/gap-claim_missing_proof_command.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: support_tier"));
+    assert!(content.contains("to: cmd:todo"));
+}
+
+#[test]
+fn test_scaffold_gap_policy_ledger_missing_proof_command() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "policy_ledger_missing_proof_command",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded gap scaffold"));
+
+    let scaffold_file = temp_dir
+        .path()
+        .join("atlas/gap-policy_ledger_missing_proof_command.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(content.contains("kind: policy_ledger"));
+    assert!(content.contains("to: cmd:todo"));
+}
+
 // ============================================================================
 // ERROR HANDLING TESTS
 // ============================================================================
@@ -1165,4 +1670,176 @@ fn test_multiple_formats_build() {
         "atlas.md not found in {:?}",
         output_dir
     );
+}
+
+#[test]
+fn test_review_packet_next_actions_include_scope_warnings() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "schemas/atlas.schema.json .github/workflows/ci.yml",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "schema change is not linked to a protocol spec/proposal/doc artifact",
+        ))
+        .stdout(predicate::str::contains(
+            "link the changed schema to a protocol spec or proposal in atlas metadata",
+        ))
+        .stdout(predicate::str::contains(
+            "add or update the impacted `policy_ledger` node for workflow changes",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_alias_includes_scope_next_actions() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "schemas/atlas.schema.json .github/workflows/ci.yml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "schema change is not linked to a protocol spec/proposal/doc artifact",
+        ))
+        .stdout(predicate::str::contains(
+            "link the changed schema to a protocol spec or proposal in atlas metadata",
+        ))
+        .stdout(predicate::str::contains(
+            "add or update the impacted `policy_ledger` node for workflow changes",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_includes_owners_section() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains(
+            "_No owners linked to current impact._",
+        ));
+}
+
+#[test]
+fn test_review_packet_uses_codeowners_for_owners_section() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let codeowners = temp_dir.path().join("CODEOWNERS");
+    fs::write(&codeowners, "crates/engine/src/lib.rs @engine-team\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("- @engine-team"));
+}
+
+#[test]
+fn test_review_packet_alias_next_actions_include_scope_mix_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs docs/adr/0001-example.md",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "path set mixes documentation and implementation files",
+        ))
+        .stdout(predicate::str::contains(
+            "split the review scope to avoid docs/implementation mix in one change",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_next_actions_include_uncovered_paths_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "changed paths are not covered by any known ownership/touches selector",
+        ))
+        .stdout(predicate::str::contains(
+            "add `owns` or `touches` selectors for the uncovered paths",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_uses_codeowners_for_uncovered_paths() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let codeowners = temp_dir.path().join("CODEOWNERS");
+    fs::write(&codeowners, "unknown/file.txt @reviewer\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("- @reviewer"))
+        .stdout(predicate::str::contains("Scope Warnings"));
 }

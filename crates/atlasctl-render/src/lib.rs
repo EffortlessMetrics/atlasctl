@@ -1,10 +1,11 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_ports::{RenderError, RenderPort};
+use atlasctl_app::{RenderError, RenderPort};
 use atlasctl_types::{
-    AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactResponse, NodeKind, RenderFormat,
-    WhyResponse,
+    AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactEnvelope, ImpactResponse, NodeKind,
+    RenderFormat, WhyEnvelope, WhyResponse,
 };
+use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
 pub struct AtlasRenderer;
@@ -27,9 +28,12 @@ impl RenderPort for AtlasRenderer {
         format: RenderFormat,
     ) -> Result<String, RenderError> {
         match format {
-            RenderFormat::Json => serde_json::to_string_pretty(response).map_err(|err| {
-                RenderError::Message(format!("failed to render why response as JSON: {err}"))
-            }),
+            RenderFormat::Json => {
+                let envelope = WhyEnvelope::for_command("why", response.clone());
+                serde_json::to_string_pretty(&envelope).map_err(|err| {
+                    RenderError::Message(format!("failed to render why response as JSON: {err}"))
+                })
+            }
             RenderFormat::Markdown | RenderFormat::GitHubSummary | RenderFormat::ReviewPacket => {
                 Ok(render_why_markdown(response))
             }
@@ -42,9 +46,12 @@ impl RenderPort for AtlasRenderer {
         format: RenderFormat,
     ) -> Result<String, RenderError> {
         match format {
-            RenderFormat::Json => serde_json::to_string_pretty(response).map_err(|err| {
-                RenderError::Message(format!("failed to render impact response as JSON: {err}"))
-            }),
+            RenderFormat::Json => {
+                let envelope = ImpactEnvelope::for_command("impacted", response.clone());
+                serde_json::to_string_pretty(&envelope).map_err(|err| {
+                    RenderError::Message(format!("failed to render impact response as JSON: {err}"))
+                })
+            }
             RenderFormat::Markdown => Ok(render_impact_markdown(response)),
             RenderFormat::GitHubSummary => Ok(render_impact_gh_summary(response)),
             RenderFormat::ReviewPacket => Ok(render_review_packet(response)),
@@ -105,7 +112,16 @@ fn render_markdown(graph: &AtlasGraph) -> String {
     out.push_str("## Nodes by kind\n\n");
     for kind in [
         NodeKind::Requirement,
+        NodeKind::Roadmap,
+        NodeKind::Proposal,
+        NodeKind::Spec,
         NodeKind::Adr,
+        NodeKind::Plan,
+        NodeKind::Goal,
+        NodeKind::SupportTier,
+        NodeKind::PolicyLedger,
+        NodeKind::Closeout,
+        NodeKind::Claim,
         NodeKind::Guide,
         NodeKind::Scenario,
         NodeKind::Fixture,
@@ -188,56 +204,140 @@ fn render_review_packet(response: &ImpactResponse) -> String {
 
     out.push_str("# 📦 Atlas Review Packet\n\n");
     out.push_str(
-        "This packet summarizes the behavioral and proof surface impacted by these changes.\n\n",
+        "This packet summarizes what changed, what surface is impacted, and what proof evidence is missing.\n\n",
     );
 
-    out.push_str("## 🎯 Impacted Proof Surface\n\n");
-    if response.impacted.is_empty() {
-        out.push_str("_No proof surface impacted._\n");
+    out.push_str("## 📂 Changed Paths\n\n");
+    if response.changed_paths.is_empty() {
+        out.push_str("_No paths provided._\n\n");
     } else {
-        for hit in &response.impacted {
-            let role_emoji = match hit.node.role {
-                atlasctl_types::NodeRole::Behavior => "🎯",
-                atlasctl_types::NodeRole::Proof => "🧱",
-                atlasctl_types::NodeRole::Document => "📄",
-                atlasctl_types::NodeRole::Artifact => "📦",
-                atlasctl_types::NodeRole::Command => "🤖",
-                atlasctl_types::NodeRole::Infra => "🏗️",
-            };
-
-            out.push_str(&format!(
-                "### {} `{}` ({})\n",
-                role_emoji, hit.node.id, hit.node.kind
-            ));
-            out.push_str(&format!("- **Title**: {}\n", hit.node.title));
-            out.push_str(&format!("- **Reason**: {}\n", hit.reason));
-
-            if !hit.owners.is_empty() {
-                out.push_str(&format!("- **Reviewers**: {}\n", hit.owners.join(", ")));
-            }
-
-            if let Some(summary) = &hit.node.summary {
-                out.push_str("\n#### Summary\n\n");
-                out.push_str(summary);
-                out.push('\n');
-            }
-
-            if !hit.node.owns.is_empty() {
-                out.push_str("\n#### Owns\n\n");
-                for p in &hit.node.owns {
-                    out.push_str(&format!("- `{}`\n", p.pattern));
-                }
-            }
-
-            out.push('\n');
+        for path in &response.changed_paths {
+            out.push_str(&format!("- `{}`\n", path.path));
         }
+        out.push('\n');
+    }
+
+    out.push_str("## 👤 Owners\n\n");
+    let mut owners = BTreeSet::new();
+    for path in &response.changed_paths {
+        for owner in &path.owners {
+            owners.insert(owner);
+        }
+    }
+    for hit in &response.impacted {
+        for owner in &hit.owners {
+            owners.insert(owner);
+        }
+    }
+    if owners.is_empty() {
+        out.push_str("_No owners linked to current impact._\n\n");
+    } else {
+        for owner in owners {
+            out.push_str(&format!("- {owner}\n"));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## 🧭 Impacted Truth Surface\n\n");
+    render_impact_kind_group(
+        &mut out,
+        "Roadmaps / Proposals / Specs / ADRs / Plans / Goals",
+        response,
+        |kind| {
+            matches!(
+                kind,
+                NodeKind::Roadmap
+                    | NodeKind::Proposal
+                    | NodeKind::Spec
+                    | NodeKind::Adr
+                    | NodeKind::Plan
+                    | NodeKind::Goal
+            )
+        },
+    );
+    render_impact_kind_group(
+        &mut out,
+        "Requirements / Scenarios / Closeouts",
+        response,
+        |kind| {
+            matches!(
+                kind,
+                NodeKind::Requirement | NodeKind::Scenario | NodeKind::Closeout
+            )
+        },
+    );
+    render_impact_kind_group(&mut out, "Policy / Support / Claims", response, |kind| {
+        matches!(
+            kind,
+            NodeKind::PolicyLedger | NodeKind::SupportTier | NodeKind::Claim
+        )
+    });
+    render_impact_kind_group(&mut out, "Proof Commands", response, |kind| {
+        kind == NodeKind::Command
+    });
+    render_impact_kind_group(&mut out, "Artifacts / Infra", response, |kind| {
+        matches!(kind, NodeKind::Artifact | NodeKind::Crate)
+    });
+
+    out.push_str("## 🧪 Proof Commands to Run\n\n");
+    let commands: Vec<_> = response
+        .impacted
+        .iter()
+        .filter(|hit| hit.node.kind == NodeKind::Command)
+        .collect();
+    if commands.is_empty() {
+        out.push_str("_No command nodes are currently impacted._\n\n");
+    } else {
+        for hit in commands {
+            out.push_str(&format!("- `{}` — {}\n", hit.node.id, hit.node.title));
+        }
+        out.push('\n');
     }
 
     if !response.uncovered.is_empty() {
         out.push_str("## 🔍 Uncovered Changes\n\n");
-        out.push_str("The following changed paths are not covered by any node in the atlas:\n\n");
+        out.push_str("These paths are not covered by any node in the atlas:\n\n");
         for path in &response.uncovered {
             out.push_str(&format!("- `{}`\n", path.path));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## ⚠️ Missing Evidence\n\n");
+    if response.missing_evidence.is_empty() {
+        out.push_str("_No immediate missing-evidence diagnostics for impacted nodes._\n\n");
+    } else {
+        for diagnostic in &response.missing_evidence {
+            out.push_str(&format!(
+                "- `{}.{}`: {}\n",
+                diagnostic.severity, diagnostic.code, diagnostic.message
+            ));
+            if let Some(subject) = &diagnostic.subject {
+                out.push_str(&format!("  - subject: `{}`\n", subject));
+            }
+            if let Some(location) = &diagnostic.location {
+                out.push_str(&format!("  - location: `{}`\n", location.path));
+            }
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## ⚠️ Scope Warnings\n\n");
+    if response.scope_warnings.is_empty() {
+        out.push_str("_No extra scope warnings detected for this impact._\n\n");
+    } else {
+        for warning in &response.scope_warnings {
+            out.push_str(&format!("- {}\n", warning));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## ✅ Next Actions\n\n");
+    if response.suggested_fixes.is_empty() {
+        out.push_str("_No follow-up metadata fixes are inferred from current diagnostics._\n\n");
+    } else {
+        for fix in &response.suggested_fixes {
+            out.push_str(&format!("- {fix}\n"));
         }
         out.push('\n');
     }
@@ -245,6 +345,36 @@ fn render_review_packet(response: &ImpactResponse) -> String {
     out.push_str("---\n_Generated by atlasctl_\n");
 
     out
+}
+
+fn render_impact_kind_group(
+    out: &mut String,
+    heading: &str,
+    response: &ImpactResponse,
+    predicate: impl Fn(NodeKind) -> bool,
+) {
+    out.push_str(&format!("### {}\n\n", heading));
+    let hits: Vec<_> = response
+        .impacted
+        .iter()
+        .filter(|hit| predicate(hit.node.kind))
+        .collect();
+    if hits.is_empty() {
+        out.push_str("_None_\n\n");
+        return;
+    }
+    for hit in hits {
+        out.push_str(&format!(
+            "- `{}` ({}) — {}\n",
+            hit.node.id, hit.node.kind, hit.node.title
+        ));
+        let reason = hit.reason.replace('`', "\\`");
+        out.push_str(&format!("  - reason: `{}`\n", reason));
+        if !hit.owners.is_empty() {
+            out.push_str(&format!("  - owners: `{}`\n", hit.owners.join(", ")));
+        }
+    }
+    out.push('\n');
 }
 
 fn render_gh_summary(graph: &AtlasGraph) -> String {
@@ -367,11 +497,7 @@ fn render_why_markdown(response: &WhyResponse) -> String {
         out.push_str("_No immediate proof chain found._\n");
     } else {
         for step in &response.chain {
-            let direction = match step.direction {
-                atlasctl_types::TraceDirection::Incoming => "is supported by",
-                atlasctl_types::TraceDirection::Outgoing => "is exercised by",
-                atlasctl_types::TraceDirection::Both => "relates to",
-            };
+            let direction = why_chain_label(&response.root.id, &step.relationship, &step.direction);
             out.push_str(&format!(
                 "- `{}` {} `{}` (via `{}`)\n",
                 response.root.id, direction, step.node.id, step.relationship
@@ -380,6 +506,31 @@ fn render_why_markdown(response: &WhyResponse) -> String {
     }
 
     out
+}
+
+fn why_chain_label(
+    root_id: &atlasctl_types::AtlasId,
+    relationship: &atlasctl_types::EdgeKind,
+    direction: &atlasctl_types::TraceDirection,
+) -> &'static str {
+    if *relationship == atlasctl_types::EdgeKind::Proves {
+        if matches!(*direction, atlasctl_types::TraceDirection::Incoming) {
+            "is proven by"
+        } else if root_id.as_str().starts_with("cmd:") {
+            "proves"
+        } else {
+            match root_id.as_str() {
+                id if id.starts_with("claim:") => "is proven by",
+                _ => "proves",
+            }
+        }
+    } else {
+        match direction {
+            atlasctl_types::TraceDirection::Incoming => "is supported by",
+            atlasctl_types::TraceDirection::Outgoing => "is exercised by",
+            atlasctl_types::TraceDirection::Both => "relates to",
+        }
+    }
 }
 
 fn render_node(node: &AtlasNode, out: &mut String) {

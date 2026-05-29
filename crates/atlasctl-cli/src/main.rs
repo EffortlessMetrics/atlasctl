@@ -1,16 +1,15 @@
 #![forbid(unsafe_code)]
 
+use atlasctl_app::RenderPort;
 use atlasctl_app::{
     AtlasService, BuildOptions, CheckOutcome, CompileOptions, ImpactOptions, ImpactSource,
     QueryOptions, TraceOptions, WhyOptions,
 };
-use atlasctl_codes::ExitCode;
 use atlasctl_discover_fs::{Codeowners, FsDiscovery, GitDiff};
-use atlasctl_ports::RenderPort;
 use atlasctl_render::AtlasRenderer;
 use atlasctl_types::{
-    AtlasId, ChangedPath, NodeKind, QueryRequest, RenderFormat, RepoRelativePath, TraceDirection,
-    TraceRequest, ValidationProfile, WhyRequest, WhySubject,
+    AtlasId, ChangedPath, ExitCode, NodeKind, QueryRequest, RenderFormat, RepoRelativePath,
+    TraceDirection, TraceRequest, ValidationProfile, WhyRequest, WhySubject,
 };
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -33,6 +32,7 @@ enum Command {
     Check(CheckArgs),
     Doctor(DoctorArgs),
     Impacted(ImpactedArgs),
+    ReviewPacket(ReviewPacketArgs),
     Why(WhyArgs),
     Query(QueryArgs),
     Trace(TraceArgs),
@@ -53,6 +53,11 @@ enum ScaffoldKind {
     Scenario,
     Artifact,
     Requirement,
+    PlanItem,
+    SupportTier,
+    PolicyLedger,
+    Closeout,
+    Gap,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -103,10 +108,22 @@ struct ImpactedArgs {
     base: Option<String>,
     #[arg(long)]
     head: Option<String>,
-    #[arg(long, value_delimiter = ' ')]
+    #[arg(long, num_args = 1.., value_delimiter = ' ')]
     paths: Option<Vec<String>>,
     #[arg(long, value_enum, default_value_t = OutputArg::Text)]
     format: OutputArg,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ReviewPacketArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+    #[arg(long)]
+    base: Option<String>,
+    #[arg(long)]
+    head: Option<String>,
+    #[arg(long, num_args = 1.., value_delimiter = ' ')]
+    paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -283,26 +300,48 @@ warnings_as_errors = true
                     .map_err(|err| format!("failed to create `atlas/` directory: {err}"))?;
             }
 
-            let id = if args.id.contains(':') {
+            let is_gap_scaffold = matches!(args.kind, ScaffoldKind::Gap);
+            let gap_diagnostic = if is_gap_scaffold {
+                Some(args.id.clone())
+            } else {
+                None
+            };
+
+            let id = if is_gap_scaffold {
+                format!("scen:gap-{}", normalize_slug(&args.id))
+            } else if args.id.contains(':') {
                 args.id.clone()
             } else {
                 let prefix = match args.kind {
                     ScaffoldKind::Scenario => "scen",
                     ScaffoldKind::Artifact => "artifact",
                     ScaffoldKind::Requirement => "req",
+                    ScaffoldKind::PlanItem => "plan",
+                    ScaffoldKind::SupportTier => "support_tier",
+                    ScaffoldKind::PolicyLedger => "policy_ledger",
+                    ScaffoldKind::Closeout => "closeout",
+                    ScaffoldKind::Gap => "scen",
                 };
                 format!("{}:{}", prefix, args.id)
             };
 
-            let file_name = format!("{}.atlas.yaml", args.id.replace(':', "-"));
+            let file_name = match args.kind {
+                ScaffoldKind::Gap => {
+                    format!("gap-{}.atlas.yaml", normalize_slug(&args.id))
+                }
+                _ => format!("{}.atlas.yaml", args.id.replace(':', "-")),
+            };
             let scaffold_path = atlas_dir.join(file_name);
             if scaffold_path.exists() {
                 return Err(format!("`{scaffold_path}` already exists"));
             }
 
-            let content = match args.kind {
-                ScaffoldKind::Scenario => format!(
-                    r#"nodes:
+            let content = if is_gap_scaffold {
+                scaffold_content_for_gap(gap_diagnostic.as_deref().unwrap_or_default())
+            } else {
+                match args.kind {
+                    ScaffoldKind::Scenario => format!(
+                        r#"nodes:
   - id: {id}
     kind: scenario
     title: {id}
@@ -318,30 +357,74 @@ edges:
     kind: runs_with
     to: cmd:TODO
 "#
-                ),
-                ScaffoldKind::Artifact => format!(
-                    r#"nodes:
+                    ),
+                    ScaffoldKind::Artifact => format!(
+                        r#"nodes:
   - id: {id}
     kind: artifact
     title: {id}
     summary: |
       Enter artifact summary here.
-"#
-                ),
-                ScaffoldKind::Requirement => format!(
-                    r#"nodes:
+                    "#
+                    ),
+                    ScaffoldKind::Requirement => format!(
+                        r#"nodes:
   - id: {id}
     kind: requirement
     title: {id}
     summary: |
       Enter requirement summary here.
-"#
-                ),
+                        "#
+                    ),
+                    ScaffoldKind::PlanItem => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: plan
+    title: {id}
+    summary: |
+      Enter plan summary here.
+                        "#
+                    ),
+                    ScaffoldKind::SupportTier => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: support_tier
+    title: {id}
+    summary: |
+      Enter support-tier summary here.
+                        "#
+                    ),
+                    ScaffoldKind::PolicyLedger => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: policy_ledger
+    title: {id}
+    summary: |
+      Enter policy-ledger summary here.
+                        "#
+                    ),
+                    ScaffoldKind::Closeout => format!(
+                        r#"nodes:
+  - id: {id}
+    kind: closeout
+    title: {id}
+    summary: |
+      Enter closeout summary here.
+                        "#
+                    ),
+                    ScaffoldKind::Gap => unreachable!(),
+                }
             };
+
             let kind_name = match args.kind {
                 ScaffoldKind::Scenario => "scenario",
                 ScaffoldKind::Artifact => "artifact",
                 ScaffoldKind::Requirement => "requirement",
+                ScaffoldKind::PlanItem => "plan item",
+                ScaffoldKind::SupportTier => "support-tier",
+                ScaffoldKind::PolicyLedger => "policy-ledger",
+                ScaffoldKind::Closeout => "closeout",
+                ScaffoldKind::Gap => "gap scaffold",
             };
 
             fs::write(&scaffold_path, content)
@@ -463,21 +546,7 @@ edges:
             })
         }
         Command::Impacted(args) => {
-            let source = if let Some(paths) = args.paths {
-                ImpactSource::Paths(
-                    paths
-                        .into_iter()
-                        .map(|p| ChangedPath {
-                            path: RepoRelativePath::new(p),
-                        })
-                        .collect(),
-                )
-            } else {
-                ImpactSource::Diff {
-                    base: args.base.unwrap_or_else(|| "main".to_string()),
-                    head: args.head.unwrap_or_else(|| "HEAD".to_string()),
-                }
-            };
+            let source = impact_source(args.paths, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -518,7 +587,33 @@ edges:
                 }
             }
 
-            Ok(ExitCode::Ok)
+            if outcome.has_uncovered_error {
+                Ok(ExitCode::ValidationFailed)
+            } else {
+                Ok(ExitCode::Ok)
+            }
+        }
+        Command::ReviewPacket(args) => {
+            let source = impact_source(args.paths, args.base, args.head);
+
+            let outcome = service
+                .impacted(&ImpactOptions {
+                    compile: compile_options(&args.common),
+                    request: source,
+                })
+                .map_err(|err| format!("review-packet failed: {err}"))?;
+
+            let md = service
+                .renderer
+                .render_impact(&outcome.response, RenderFormat::ReviewPacket)
+                .map_err(|err| format!("failed to render review packet: {err}"))?;
+            println!("{md}");
+
+            if outcome.has_uncovered_error {
+                Ok(ExitCode::ValidationFailed)
+            } else {
+                Ok(ExitCode::Ok)
+            }
         }
         Command::Why(args) => {
             let subject = if args.path {
@@ -713,6 +808,29 @@ fn compile_options(common: &CommonArgs) -> CompileOptions {
     }
 }
 
+fn impact_source(
+    paths: Option<Vec<String>>,
+    base: Option<String>,
+    head: Option<String>,
+) -> ImpactSource {
+    if let Some(paths) = paths {
+        ImpactSource::Paths(
+            paths
+                .into_iter()
+                .map(|p| ChangedPath {
+                    path: RepoRelativePath::new(p),
+                    owners: Vec::new(),
+                })
+                .collect(),
+        )
+    } else {
+        ImpactSource::Diff {
+            base: base.unwrap_or_else(|| "main".to_string()),
+            head: head.unwrap_or_else(|| "HEAD".to_string()),
+        }
+    }
+}
+
 fn print_summary(graph: &atlasctl_types::AtlasGraph, has_errors: bool) {
     println!("repo: {}", graph.repo.name);
     println!(
@@ -756,6 +874,13 @@ fn print_impacted(outcome: &atlasctl_app::ImpactOutcome) {
     println!("Impact Analysis:");
     println!("  impacted nodes: {}", outcome.response.impacted.len());
     println!("  uncovered changes: {}", outcome.response.uncovered.len());
+    if outcome.has_uncovered_warning {
+        println!("  status: warnings (uncovered changes)");
+    } else if outcome.has_uncovered_error {
+        println!("  status: errors (uncovered changes)");
+    } else {
+        println!("  status: ok");
+    }
 
     if !outcome.response.impacted.is_empty() {
         println!("\nImpacted Nodes:");
@@ -818,5 +943,232 @@ fn print_why(outcome: &atlasctl_app::WhyOutcome) {
                 direction, step.relationship, step.node.id, step.node.kind
             );
         }
+    }
+}
+
+fn scaffold_content_for_gap(diagnostic: &str) -> String {
+    let normalized = normalize_slug(diagnostic);
+    let target = scaffold_gap_target(diagnostic);
+
+    match diagnostic {
+        "claim_missing_proof_command" => format!(
+            r#"nodes:
+  - id: support_tier:gap-{normalized}
+    kind: support_tier
+    title: Fill support-tier proof gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "docs/**/*.md"
+edges:
+  - from: support_tier:gap-{normalized}
+    kind: proves
+    to: cmd:todo
+  - from: support_tier:gap-{normalized}
+    kind: governs
+    to: {target}
+"#
+        ),
+        "policy_ledger_missing_proof_command" => format!(
+            r#"nodes:
+  - id: policy_ledger:gap-{normalized}
+    kind: policy_ledger
+    title: Fill policy proof gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    owns:
+      - ".github/workflows/**/*.yml"
+edges:
+  - from: policy_ledger:gap-{normalized}
+    kind: proves
+    to: cmd:todo
+  - from: policy_ledger:gap-{normalized}
+    kind: governs
+    to: {target}
+"#
+        ),
+        "closeout_missing" => format!(
+            r#"nodes:
+  - id: closeout:gap-{normalized}
+    kind: closeout
+    title: Fill closeout gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+edges:
+  - from: closeout:gap-{normalized}
+    kind: closes
+    to: {target}
+"#
+        ),
+        "artifact_missing_producer" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Fill artifact-producer gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "target/**/*"
+    owns:
+      - "TODO/path"
+edges:
+  - from: scen:gap-{normalized}
+    kind: emits
+    to: {target}
+  - from: scen:gap-{normalized}
+    kind: exercises
+    to: crate:todo
+"#
+        ),
+        "active_goal_work_item_missing_proof" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Prove active-goal work item
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "plans/**/*.md"
+    owns:
+      - "TODO/path"
+edges:
+  - from: scen:gap-{normalized}
+    kind: proves
+    to: {target}
+  - from: scen:gap-{normalized}
+    kind: runs_with
+    to: cmd:todo
+"#
+        ),
+        "scenario_missing_command" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Fill scenario command gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "tests/**/*.rs"
+edges:
+  - from: scen:gap-{normalized}
+    kind: runs_with
+    to: cmd:todo
+"#
+        ),
+        "scenario_missing_crate" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Fill scenario crate gap
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "crates/**/*"
+edges:
+  - from: scen:gap-{normalized}
+    kind: exercises
+    to: crate:todo
+"#
+        ),
+        "uncovered_crate" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Cover uncovered crate
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "crates/**/*"
+    owns:
+      - "TODO/path"
+edges:
+  - from: scen:gap-{normalized}
+    kind: proves
+    to: req:todo
+  - from: scen:gap-{normalized}
+    kind: exercises
+    to: crate:todo
+"#
+        ),
+        "requirement_not_proven" => format!(
+            r#"nodes:
+  - id: scen:gap-{normalized}
+    kind: scenario
+    title: Prove requirement
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "tests/**/*.rs"
+edges:
+  - from: scen:gap-{normalized}
+    kind: proves
+    to: {target}
+  - from: scen:gap-{normalized}
+    kind: runs_with
+    to: cmd:todo
+"#
+        ),
+        _ => {
+            let id = format!("scen:gap-{normalized}");
+            format!(
+                r#"nodes:
+  - id: {id}
+    kind: scenario
+    title: Fill gap from {diagnostic}
+    summary: |
+      Generated from diagnostic `{diagnostic}`.
+    touches:
+      - "docs/**/*.md"
+    owns:
+      - "TODO/path"
+edges:
+  - from: {id}
+    kind: proves
+    to: {target}
+  - from: {id}
+    kind: runs_with
+    to: cmd:todo
+"#
+            )
+        }
+    }
+}
+
+fn scaffold_gap_target(diagnostic: &str) -> &'static str {
+    match diagnostic {
+        "requirement_not_proven" => "req:todo",
+        "artifact_missing_producer" => "artifact:todo",
+        "active_goal_missing_plan" => "plan:todo",
+        "active_goal_work_item_missing_proof" => "scen:todo",
+        "claim_missing_proof_command" => "support_tier:todo",
+        "policy_ledger_missing_proof_command" => "policy_ledger:todo",
+        "scenario_missing_command" => "scen:todo",
+        "scenario_missing_crate" => "crate:todo",
+        "uncovered_crate" => "crate:todo",
+        "closeout_missing" => "closeout:todo",
+        _ => "req:todo",
+    }
+}
+
+fn normalize_slug(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut prev_was_dash = false;
+
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            output.push(ch.to_ascii_lowercase());
+            prev_was_dash = false;
+        } else if !prev_was_dash {
+            output.push('-');
+            prev_was_dash = true;
+        }
+    }
+
+    let output = output.trim_matches('-').to_string();
+
+    if output.is_empty() {
+        "gap".to_string()
+    } else {
+        output
     }
 }

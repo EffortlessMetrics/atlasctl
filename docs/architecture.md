@@ -35,10 +35,8 @@ Adapters own:
 
 ## Crates
 
-- `atlasctl-codes`
 - `atlasctl-types`
 - `atlasctl-core`
-- `atlasctl-ports`
 - `atlasctl-app`
 - `atlasctl-discover-fs`
 - `atlasctl-render`

@@ -1,9 +1,7 @@
 [workspace]
 members = [
-  "crates/atlasctl-codes",
   "crates/atlasctl-types",
   "crates/atlasctl-core",
-  "crates/atlasctl-ports",
   "crates/atlasctl-app",
   "crates/atlasctl-discover-fs",
   "crates/atlasctl-render",
