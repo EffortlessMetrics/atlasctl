@@ -517,6 +517,7 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
             // - prefer longer selector patterns
             // - deterministic tie-breaker by node id
             let mut best: Option<(&AtlasNode, bool, usize, usize)> = None;
+            let allow_recursive_touch = request.allow_recursive_touch;
 
             for node in &graph.nodes {
                 for selector in &node.owns {
@@ -530,6 +531,10 @@ pub fn why_graph(graph: &AtlasGraph, request: &WhyRequest) -> Option<WhyResponse
                 }
 
                 for selector in &node.touches {
+                    if !allow_recursive_touch && selector.pattern.contains("**") {
+                        continue;
+                    }
+
                     if path_matches_selector(path, selector) {
                         let exactness = path_selector_exactness(&selector.pattern);
                         let candidate_len = selector.pattern.len();
@@ -666,6 +671,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     let mut uncovered = BTreeMap::<RepoRelativePath, Vec<String>>::new();
     let mut impacted_ids = BTreeSet::<AtlasId>::new();
     let mut changed_paths = BTreeMap::<RepoRelativePath, Vec<String>>::new();
+    let mut coverage_by_path = BTreeMap::<RepoRelativePath, (Vec<AtlasId>, Vec<AtlasId>)>::new();
 
     for changed in &request.paths {
         let owners_for_changed = if !changed.owners.is_empty() {
@@ -678,6 +684,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                 .unwrap_or_default()
         };
         let changed_entry = changed_paths.entry(changed.path.clone()).or_default();
+        coverage_by_path.entry(changed.path.clone()).or_default();
         for owner in owners_for_changed {
             if !changed_entry.contains(&owner) {
                 changed_entry.push(owner);
@@ -686,7 +693,8 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
 
         let mut found_any = false;
         for node in &graph.nodes {
-            for selector in node.all_paths() {
+            let mut hit_as_owner = false;
+            for selector in &node.owns {
                 let pattern = selector.pattern.replace('\\', "/");
                 let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
                     .ok()
@@ -694,30 +702,61 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                 if let Some(glob) = glob
                     && glob.is_match(changed.path.as_str())
                 {
+                    hit_as_owner = true;
                     found_any = true;
-
-                    let hit_owners = changed_paths
-                        .get(&changed.path)
-                        .cloned()
-                        .unwrap_or_default();
-
-                    let entry = impacted
-                        .entry(node.id.clone())
-                        .or_insert_with(|| ImpactHit {
-                            node: node.clone(),
-                            reason: format!("matches changed path `{}`", changed.path),
-                            owners: Vec::new(),
-                        });
-
-                    // Merge owners
-                    for o in hit_owners {
-                        if !entry.owners.contains(&o) {
-                            entry.owners.push(o);
-                        }
-                    }
-
-                    impacted_ids.insert(node.id.clone());
                 }
+            }
+
+            let mut hit_as_toucher = false;
+            for selector in &node.touches {
+                let pattern = selector.pattern.replace('\\', "/");
+                let glob: Option<globset::GlobMatcher> = globset::Glob::new(&pattern)
+                    .ok()
+                    .and_then(|g| g.compile_matcher().into());
+                if let Some(glob) = glob
+                    && glob.is_match(changed.path.as_str())
+                {
+                    hit_as_toucher = true;
+                    found_any = true;
+                }
+            }
+
+            if hit_as_owner || hit_as_toucher {
+                let hit_owners = changed_paths
+                    .get(&changed.path)
+                    .cloned()
+                    .unwrap_or_default();
+
+                let entry = impacted
+                    .entry(node.id.clone())
+                    .or_insert_with(|| ImpactHit {
+                        node: node.clone(),
+                        reason: format!("matches changed path `{}`", changed.path),
+                        owners: Vec::new(),
+                    });
+
+                // Merge owners
+                for o in hit_owners {
+                    if !entry.owners.contains(&o) {
+                        entry.owners.push(o);
+                    }
+                }
+
+                if hit_as_owner
+                    && let Some((owns, _)) = coverage_by_path.get_mut(&changed.path)
+                    && !owns.contains(&node.id)
+                {
+                    owns.push(node.id.clone());
+                }
+
+                if hit_as_toucher
+                    && let Some((_, touches)) = coverage_by_path.get_mut(&changed.path)
+                    && !touches.contains(&node.id)
+                {
+                    touches.push(node.id.clone());
+                }
+
+                impacted_ids.insert(node.id.clone());
             }
         }
         if !found_any {
@@ -733,6 +772,17 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             }
         }
     }
+
+    let touched_only_paths = coverage_by_path
+        .into_iter()
+        .filter_map(|(path, (owns, touches))| {
+            if owns.is_empty() && !touches.is_empty() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
 
     let mut changed_paths = changed_paths
         .into_iter()
@@ -827,6 +877,20 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     });
 
     let mut scope_warnings = compute_scope_warnings(request, &impacted);
+    if !touched_only_paths.is_empty() {
+        for path in touched_only_paths.iter().take(5) {
+            scope_warnings.push(format!(
+                "`{}` is only covered by `touches` metadata and has no explicit `owns` coverage",
+                path
+            ));
+        }
+        if touched_only_paths.len() > 5 {
+            scope_warnings.push(format!(
+                "{} additional paths are only covered by `touches`; add explicit `owns` coverage.",
+                touched_only_paths.len() - 5
+            ));
+        }
+    }
     if !uncovered.is_empty() {
         scope_warnings.push(format!(
             "`{}` changed paths are not covered by any known ownership/touches selector",
@@ -873,6 +937,23 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             .iter()
             .filter_map(|warning| suggest_fix_for_scope_warning(warning).map(str::to_string)),
     );
+    if !uncovered.is_empty() {
+        suggested_fixes.retain(|fix| {
+            !fix.contains("add `owns` or `touches` selectors for the uncovered paths")
+        });
+        for path in uncovered.iter().take(5) {
+            suggested_fixes.push(format!(
+                "Add `owns`/`touches` coverage for changed path `{}` in a matching atlas node.",
+                path.path
+            ));
+        }
+        if uncovered.len() > 5 {
+            suggested_fixes.push(format!(
+                "{} additional uncovered paths need explicit `owns`/`touches` coverage.",
+                uncovered.len() - 5
+            ));
+        }
+    }
     suggested_fixes.sort();
     suggested_fixes.dedup();
     maybe_sort_and_dedup_scope_warnings(&mut scope_warnings);
@@ -1004,6 +1085,8 @@ fn maybe_sort_and_dedup_scope_warnings(scope_warnings: &mut Vec<String>) {
 fn suggest_fix_for_scope_warning(warning: &str) -> Option<&'static str> {
     if warning.contains("changed paths are not covered by any known ownership/touches selector") {
         Some("add `owns` or `touches` selectors for the uncovered paths")
+    } else if warning.contains("only covered by `touches` metadata") {
+        Some("replace `touches` metadata with explicit `owns` coverage for accountable ownership")
     } else if warning.contains("active-goal metadata is not complete") {
         Some("repair `.codex/goals/active.toml` so all active-goal references are valid and ready")
     } else if warning.contains("documentation-only paths affect non-document surfaces") {
@@ -2650,9 +2733,64 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("changed paths are not covered"))
         );
-        assert!(response.suggested_fixes.iter().any(|fix| {
-            fix.contains("add `owns` or `touches` selectors for the uncovered paths")
-        }));
+        assert!(
+            response
+                .suggested_fixes
+                .iter()
+                .any(|fix| fix.contains("Add `owns`/`touches` coverage for changed path"))
+        );
+    }
+
+    #[test]
+    fn scope_warning_for_touches_without_owns() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![
+                    node_with_touches(
+                        "scen:touch-only",
+                        NodeKind::Scenario,
+                        &["crates/engine/src/lib.rs"],
+                    ),
+                    node("req:touch-only", NodeKind::Requirement),
+                    node("cmd:touch-test", NodeKind::Command),
+                    node("crate:engine", NodeKind::Crate),
+                ],
+                edges: vec![
+                    edge("scen:touch-only", EdgeKind::Proves, "req:touch-only"),
+                    edge("scen:touch-only", EdgeKind::RunsWith, "cmd:touch-test"),
+                    edge("scen:touch-only", EdgeKind::Exercises, "crate:engine"),
+                ],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/engine/src/lib.rs".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            response.scope_warnings.iter().any(|warning| warning
+                .contains("`crates/engine/src/lib.rs` is only covered by `touches` metadata")),
+            "changed path should be flagged as touches-only coverage"
+        );
+        assert!(
+            response.suggested_fixes.iter().any(|fix| {
+                fix.contains("replace `touches` metadata with explicit `owns` coverage")
+            }),
+            "touches-only scope warning should include a fix"
+        );
+        assert!(response.uncovered.is_empty());
     }
 
     #[test]
@@ -3685,8 +3823,9 @@ mod golden {
     use atlasctl_fixtures::repo;
     use atlasctl_render::AtlasRenderer;
     use atlasctl_types::{
-        AtlasEdge, AtlasId, AtlasNode, ChangedPath, EdgeKind, NodeKind, NodeRole, PathSelector,
-        Provenance, RenderFormat, RepoRelativePath, WhyRequest, WhySubject,
+        AtlasEdge, AtlasGraph, AtlasId, AtlasMetrics, AtlasNode, ChangedPath, EdgeKind, NodeKind,
+        NodeRole, PathSelector, Provenance, RenderFormat, RepoDescriptor, RepoRelativePath,
+        WhyRequest, WhySubject,
     };
     use serde_json::{Value, json};
 
@@ -3722,6 +3861,7 @@ mod golden {
         let id = AtlasId::parse("scen:example-build").unwrap();
         let request = WhyRequest {
             subject: WhySubject::Id(id),
+            allow_recursive_touch: false,
         };
         let response = why_graph(&graph, &request).expect("response");
         assert_eq!(response.root.id.as_str(), "scen:example-build");
@@ -3739,6 +3879,7 @@ mod golden {
         let graph = build_atlas("valid-minimal");
         let request = WhyRequest {
             subject: WhySubject::Path("crates/engine".into()),
+            allow_recursive_touch: true,
         };
         let response = why_graph(&graph, &request).expect("response");
         assert_eq!(response.root.id.as_str(), "crate:engine");
@@ -3775,11 +3916,62 @@ mod golden {
         let response = why_graph(
             &graph,
             &WhyRequest {
-                subject: WhySubject::Path(RepoRelativePath::new("docs/guide/overview.md")),
+                subject: WhySubject::Path("docs/guide/overview.md".into()),
+                allow_recursive_touch: true,
             },
         )
         .expect("response");
         assert_eq!(response.root.id.as_str(), "req:owning-match");
+    }
+
+    #[test]
+    fn scenario_why_skips_recursive_touch_match_when_path_is_missing() {
+        let graph = AtlasGraph {
+            schema_version: 1,
+            tool_version: "test".to_string(),
+            repo: RepoDescriptor {
+                name: "test".to_string(),
+            },
+            nodes: vec![AtlasNode {
+                id: AtlasId::parse("scen:broad-touch").unwrap(),
+                kind: NodeKind::Scenario,
+                role: NodeRole::Proof,
+                title: "Broad touch".to_string(),
+                summary: None,
+                owns: vec![],
+                touches: vec![PathSelector::new("crates/**/*.rs")],
+                attrs: std::collections::BTreeMap::new(),
+                provenance: Provenance::new(RepoRelativePath::new("atlas/why-rank.atlas.yaml")),
+            }],
+            edges: vec![],
+            diagnostics: vec![],
+            metrics: AtlasMetrics {
+                node_count: 1,
+                edge_count: 0,
+                diagnostic_count: 0,
+                error_count: 0,
+                warning_count: 0,
+            },
+        };
+
+        let response = why_graph(
+            &graph,
+            &WhyRequest {
+                subject: WhySubject::Path("crates/engine/src/lib.r".into()),
+                allow_recursive_touch: false,
+            },
+        );
+        assert!(response.is_none());
+
+        let response = why_graph(
+            &graph,
+            &WhyRequest {
+                subject: WhySubject::Path("crates/atlasctl-core/src/lib.rs".into()),
+                allow_recursive_touch: true,
+            },
+        )
+        .expect("response");
+        assert_eq!(response.root.id.as_str(), "scen:broad-touch");
     }
 
     #[test]
@@ -3809,6 +4001,7 @@ mod golden {
             &graph,
             &WhyRequest {
                 subject: WhySubject::Id(claim_id),
+                allow_recursive_touch: false,
             },
         )
         .expect("response");
@@ -3835,6 +4028,7 @@ mod golden {
         let why = {
             let request = WhyRequest {
                 subject: WhySubject::Id(AtlasId::parse("scen:example-build").unwrap()),
+                allow_recursive_touch: false,
             };
             render_why_json(&renderer, &graph, &request)
         };
@@ -4013,6 +4207,7 @@ mod golden {
         let id = AtlasId::parse("scen:example-build").unwrap();
         let request = WhyRequest {
             subject: WhySubject::Id(id),
+            allow_recursive_touch: false,
         };
         let response = why_graph(&graph, &request).expect("response");
 

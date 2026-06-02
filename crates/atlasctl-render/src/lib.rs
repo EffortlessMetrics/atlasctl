@@ -441,6 +441,7 @@ fn render_review_packet(response: &ImpactResponse) -> String {
 
     out.push_str("## ✅ Next Actions\n\n");
     let mut suggested_actions = response.suggested_fixes.clone();
+
     if let Some(active_goal) = &response.active_goal {
         render_active_goal_next_actions(
             active_goal,
@@ -454,6 +455,7 @@ fn render_review_packet(response: &ImpactResponse) -> String {
         out.push_str("_No follow-up metadata fixes are inferred from current diagnostics._\n\n");
     } else {
         suggested_actions.sort();
+        suggested_actions.dedup();
         for fix in suggested_actions {
             out.push_str(&format!("- {fix}\n"));
         }

@@ -1,0 +1,35 @@
+nodes:
+  - id: req:example
+    kind: requirement
+    title: Example requirement
+
+  - id: scen:glob-touch
+    kind: scenario
+    title: Glob touch
+    paths:
+      - crates/**/*.rs
+
+  - id: cmd:ci-fast
+    kind: command
+    title: Fast CI
+
+  - id: artifact:example-report
+    kind: artifact
+    title: Example report
+
+edges:
+  - from: scen:glob-touch
+    kind: proves
+    to: req:example
+
+  - from: scen:glob-touch
+    kind: runs_with
+    to: cmd:ci-fast
+
+  - from: scen:glob-touch
+    kind: exercises
+    to: crate:engine
+
+  - from: scen:glob-touch
+    kind: emits
+    to: artifact:example-report

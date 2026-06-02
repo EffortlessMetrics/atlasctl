@@ -644,26 +644,48 @@ edges:
         }
         Command::Why(args) => {
             let path_subject = normalize_path_input(&args.subject);
-
-            let subject = if args.path {
-                WhySubject::Path(RepoRelativePath::new(path_subject))
+            let (subject, allow_recursive_touch, has_existing_path) = if args.path {
+                let path = args.common.repo_root.join(path_subject.as_str());
+                (
+                    WhySubject::Path(RepoRelativePath::new(path_subject.clone())),
+                    path.exists() || path_has_glob_chars(&path_subject),
+                    Some(path.exists()),
+                )
             } else {
-                WhySubject::Id(
-                    AtlasId::parse(args.subject)
-                        .map_err(|err| format!("invalid node id: {err}"))?,
+                (
+                    WhySubject::Id(
+                        AtlasId::parse(args.subject)
+                            .map_err(|err| format!("invalid node id: {err}"))?,
+                    ),
+                    false,
+                    None,
                 )
             };
 
             let outcome = service
                 .why(&WhyOptions {
                     compile: compile_options(&args.common),
-                    request: WhyRequest { subject },
+                    request: WhyRequest {
+                        subject,
+                        allow_recursive_touch,
+                    },
                 })
                 .map_err(|err| format!("why failed: {err}"))?;
 
             if outcome.response.is_none() {
                 return if args.format == OutputArg::Text {
                     println!("No matching node found.");
+                    if args.path {
+                        if has_existing_path.unwrap_or(false) {
+                            println!(
+                                "Tip: add an `owns`/`touches` selector for this path in matching atlas metadata."
+                            );
+                        } else {
+                            println!(
+                                "Tip: check the path spelling, or add atlas metadata coverage for this path."
+                            );
+                        }
+                    }
                     Ok(ExitCode::Ok)
                 } else {
                     Err("No matching node found".to_string())
@@ -1266,4 +1288,8 @@ fn normalize_slug(input: &str) -> String {
 
 fn normalize_path_input(value: &str) -> String {
     value.replace('\\', "/")
+}
+
+fn path_has_glob_chars(value: &str) -> bool {
+    value.contains('*') || value.contains('?') || value.contains('[')
 }
