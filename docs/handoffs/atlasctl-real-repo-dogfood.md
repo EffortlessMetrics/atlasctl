@@ -34,10 +34,12 @@ Then derive:
 | PR #23 policy+discovery | `8e64863..c933cbe` | 4 | 4 | 0 | 0.0% | 26 | 0 | 0 |
 | PR #24 dogfood-surface | `c933cbe..7f0561c` | 1 | 1 | 0 | 0.0% | 10 | 0 | 0 |
 | PR #34 why-path robustness | `1db2dc0..b5cde7e` | 2 | 2 | 0 | 0.0% | 22 | 0 | 0 |
+| Local follow-up (`main` history) | `9ba6430..f4d7f8f` | 22 | 22 | 0 | 0.0% | 32 | 0 | 1 |
 | Local follow-up (`main`) | `9ba6430..5d44572` | 6 | 6 | 0 | 0.0% | 14 | 0 | 1 |
 | External sample: shiplog PR #150 | `e0f5c7c..7111ada` | 9 | 0 | 9 | 100% | 0 | 0 | 3 |
 | External sample: shiplog follow-up | `e303d69..dc7d351` | 8 | 0 | 8 | 100% | 0 | 0 | 3 |
 | External sample: shiplog follow-up bounded | `cdda374..dc7d351` | 6 | 0 | 6 | 100% | 0 | 0 | 3 |
+| External sample: shiplog follow-up latest | `cdda374..b91cf07` | 7 | 0 | 7 | 100% | 0 | 0 | 3 |
 
 ## Real-repo portability check (external reference)
 
@@ -103,6 +105,19 @@ Observed behavior:
 - `review-packet` reported `9` changed paths, `9` uncovered (`100%` coverage), `0` impacted nodes, and `3` scope warnings.
 - `why` on a changed source file returns `No matching node found`, confirming no proof-chain coverage without source-of-truth metadata.
 
+- PR follow-up latest (`cdda374..b91cf07`, `docs + xtask`):
+
+- `rtk cargo run -p atlasctl-cli -- doctor --repo-root H:\Code\Rust\shiplog --profile ci`
+- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base cdda374 --head b91cf07 --format review-packet`
+- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base cdda374 --head b91cf07 --format json`
+- `rtk cargo run -p atlasctl-cli -- why --repo-root H:\Code\Rust\shiplog --path xtask/src/cli.rs`
+
+- Observed behavior:
+
+- `doctor` currently fails with `26` diagnostics (`1` error, `25` warnings). The error is `active_goal_missing_plan`; warnings are dominated by `policy_file_legacy_no_atlas` and uncovered crate warnings.
+- `review-packet` reported `7` changed paths, `7` uncovered (`100%` coverage), `0` impacted nodes, and `3` scope warnings.
+- `why --path xtask/src/cli.rs` remains non-matching until source-of-truth coverage is added.
+
 ## What the scorecard shows
 
 - On atlasctl PR history, uncovered rate is currently `0%` for the three sampled PRs after `scen:full-release-verification` expansion from PR #24.
@@ -112,9 +127,9 @@ Observed behavior:
 
 ## Real-repo command latency (sample: current `main`)
 
-- `doctor --profile ci`: **~3.45s**
-- `impacted --format review-packet`: **~3.93s**
-- `why --path crates/atlasctl-core/src/lib.rs`: **~3.47s**
+- `doctor --profile ci`: **~1.92s**
+- `impacted --format review-packet`: **~4.74s**
+- `why --path crates/atlasctl-core/src/lib.rs`: **~1.46s**
 
 Command runs remained stable and produced consistent output for this repo as evidence carrier.
 
