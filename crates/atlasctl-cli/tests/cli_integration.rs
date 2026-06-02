@@ -992,6 +992,64 @@ fn test_impacted_backslash_path_is_normalized() {
 }
 
 #[test]
+fn test_review_packet_command_json() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates\\engine\\src\\lib.rs",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: Value = serde_json::from_str(&stdout).expect("review-packet json should parse");
+
+    assert_eq!(value["command"], "review-packet");
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(
+        value["payload"]["changed_paths"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        value["payload"]["changed_paths"][0]["path"],
+        Value::String("crates/engine/src/lib.rs".to_string())
+    );
+}
+
+#[test]
+fn test_review_packet_path_normalization() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--format",
+            "markdown",
+            "--paths",
+            "crates\\engine\\src\\lib.rs",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("`crates/engine/src/lib.rs`"));
+    assert!(!stdout.contains("crates\\engine\\src\\lib.rs"));
+}
+
+#[test]
 fn test_impacted_review_packet() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 

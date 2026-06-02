@@ -8,8 +8,8 @@ use atlasctl_app::{
 use atlasctl_discover_fs::{Codeowners, FsDiscovery, GitDiff};
 use atlasctl_render::AtlasRenderer;
 use atlasctl_types::{
-    AtlasId, ChangedPath, ExitCode, NodeKind, QueryRequest, RenderFormat, RepoRelativePath,
-    TraceDirection, TraceRequest, ValidationProfile, WhyRequest, WhySubject,
+    AtlasId, ChangedPath, ExitCode, ImpactEnvelope, NodeKind, QueryRequest, RenderFormat,
+    RepoRelativePath, TraceDirection, TraceRequest, ValidationProfile, WhyRequest, WhySubject,
 };
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -122,6 +122,8 @@ struct ReviewPacketArgs {
     base: Option<String>,
     #[arg(long)]
     head: Option<String>,
+    #[arg(long, value_enum, default_value_t = OutputArg::Text)]
+    format: OutputArg,
     #[arg(long, num_args = 1.., value_delimiter = ' ')]
     paths: Option<Vec<String>>,
 }
@@ -603,11 +605,36 @@ edges:
                 })
                 .map_err(|err| format!("review-packet failed: {err}"))?;
 
-            let md = service
-                .renderer
-                .render_impact(&outcome.response, RenderFormat::ReviewPacket)
-                .map_err(|err| format!("failed to render review packet: {err}"))?;
-            println!("{md}");
+            match args.format {
+                OutputArg::Text | OutputArg::ReviewPacket => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::Json => {
+                    let envelope =
+                        ImpactEnvelope::for_command("review-packet", outcome.response.clone());
+                    let json = serde_json::to_string_pretty(&envelope)
+                        .map_err(|err| format!("failed to render review packet JSON: {err}"))?;
+                    println!("{json}");
+                }
+                OutputArg::Markdown => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::ReviewPacket)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
+                OutputArg::GhSummary => {
+                    let md = service
+                        .renderer
+                        .render_impact(&outcome.response, RenderFormat::GitHubSummary)
+                        .map_err(|err| format!("failed to render review packet: {err}"))?;
+                    println!("{md}");
+                }
+            }
 
             if outcome.has_uncovered_error {
                 Ok(ExitCode::ValidationFailed)

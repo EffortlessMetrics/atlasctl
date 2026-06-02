@@ -9,6 +9,7 @@ This document defines the formal artifact protocol for `atlasctl`, ensuring stab
 1.  **Atlas Graph (`atlas.json`)**: The canonical representation of the repository proof topology.
 2.  **Impact Analysis (`impact.json`)**: review-time mapping of diffs to behaviors.
     - Contains a protocol envelope with `schema_version`, `command`, and `payload`.
+    - The `command` field reflects the invoking command (`impacted` or `review-packet`), while the payload schema is shared by both.
 3.  **Proof Chain (`why.json`)**: Curated semantic projection for a specific node or path.
     - Contains a protocol envelope with `schema_version`, `command`, and `payload`.
 4.  **Diagnostics (`doctor.json`)**: maintenance and drift reports.
