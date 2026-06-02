@@ -1,0 +1,7 @@
+[atlas]
+id = "policy_ledger:ci-workflow-governance"
+kind = "policy_ledger"
+title = "CI workflow governance"
+summary = "Changes to CI workflow files must align with reviewed proof and release controls."
+surfaces = [".github/workflows/*.yml", ".github/workflows/**/*.yml"]
+proves = ["cmd:ci-full"]

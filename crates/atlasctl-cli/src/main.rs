@@ -546,7 +546,7 @@ edges:
             })
         }
         Command::Impacted(args) => {
-            let source = impact_source(args.paths, args.base, args.head);
+            let source = impact_source(args.paths, &args.common.repo_root, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -594,7 +594,7 @@ edges:
             }
         }
         Command::ReviewPacket(args) => {
-            let source = impact_source(args.paths, args.base, args.head);
+            let source = impact_source(args.paths, &args.common.repo_root, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -810,24 +810,87 @@ fn compile_options(common: &CommonArgs) -> CompileOptions {
 
 fn impact_source(
     paths: Option<Vec<String>>,
+    repo_root: &Utf8PathBuf,
     base: Option<String>,
     head: Option<String>,
 ) -> ImpactSource {
     if let Some(paths) = paths {
-        ImpactSource::Paths(
-            paths
-                .into_iter()
-                .map(|p| ChangedPath {
-                    path: RepoRelativePath::new(p),
-                    owners: Vec::new(),
-                })
-                .collect(),
-        )
+        let mut expanded_paths = Vec::new();
+        for path in paths {
+            let path = RepoRelativePath::new(path);
+            if should_expand_paths(repo_root, &path) {
+                expanded_paths.extend(expand_path_inputs(repo_root, &path));
+            } else {
+                expanded_paths.push(path);
+            }
+        }
+
+        let mut changed_paths = Vec::new();
+        expanded_paths.sort();
+        expanded_paths.dedup();
+
+        for path in expanded_paths {
+            changed_paths.push(ChangedPath {
+                path,
+                owners: Vec::new(),
+            });
+        }
+
+        ImpactSource::Paths(changed_paths)
     } else {
         ImpactSource::Diff {
             base: base.unwrap_or_else(|| "main".to_string()),
             head: head.unwrap_or_else(|| "HEAD".to_string()),
         }
+    }
+}
+
+fn should_expand_paths(repo_root: &Utf8PathBuf, path: &RepoRelativePath) -> bool {
+    repo_root.join(path.as_str()).is_dir()
+}
+
+fn expand_path_inputs(repo_root: &Utf8PathBuf, path: &RepoRelativePath) -> Vec<RepoRelativePath> {
+    let mut entries = Vec::new();
+    let mut stack = vec![path.clone()];
+
+    while let Some(current) = stack.pop() {
+        let fs_path = repo_root.join(current.as_str());
+        let Ok(read_dir) = fs::read_dir(&fs_path) else {
+            continue;
+        };
+
+        for entry in read_dir.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let name = name.replace('\\', "/");
+            let child = if current.as_str().is_empty() {
+                name
+            } else if current.as_str().ends_with('/') {
+                format!("{}{}", current.as_str(), name)
+            } else {
+                format!("{}/{}", current, name)
+            };
+            let child_path = RepoRelativePath::new(child);
+
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+
+            if file_type.is_dir() {
+                stack.push(child_path);
+                continue;
+            }
+
+            if file_type.is_file() {
+                entries.push(child_path);
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        vec![path.clone()]
+    } else {
+        entries
     }
 }
 

@@ -2413,6 +2413,42 @@ mod tests {
     }
 
     #[test]
+    fn scope_warning_is_avoided_when_workflow_change_matches_policy_ledger() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node_with_touches(
+                    "policy_ledger:ci-workflow-governance",
+                    NodeKind::PolicyLedger,
+                    &[".github/workflows/**/*.yml"],
+                )],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: ".github/workflows/ci.yml".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            !response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("workflow file changed but no policy ledger"))
+        );
+    }
+
+    #[test]
     fn scope_warning_for_schema_change_without_protocol_nodes() {
         let graph = compile_atlas(
             DiscoveredRepo {
