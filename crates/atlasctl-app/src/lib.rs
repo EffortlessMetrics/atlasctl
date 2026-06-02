@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
-use atlasctl_core::{compile_atlas, impacted_graph, query_graph, trace_graph, why_graph};
+use atlasctl_core::{
+    compile_atlas, impacted_graph, owning_nodes_for_path, query_graph, trace_graph, why_graph,
+};
 use atlasctl_types::{
     AtlasGraph, ChangedPath, DiscoveredRepo, ImpactRequest, ImpactResponse, QueryRequest,
     QueryResponse, RenderFormat, RepoRelativePath, Severity, TraceRequest, TraceResponse,
@@ -167,6 +169,15 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
         for changed in &mut paths {
             if let Some(found) = owners.get(&changed.path) {
                 changed.owners = found.clone();
+                continue;
+            }
+
+            let fallback_owners: Vec<_> = owning_nodes_for_path(&graph, &changed.path)
+                .into_iter()
+                .map(|id| id.to_string())
+                .collect();
+            if !fallback_owners.is_empty() {
+                changed.owners = fallback_owners;
             }
         }
 

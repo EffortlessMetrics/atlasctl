@@ -644,6 +644,23 @@ fn path_selector_exactness(pattern: &str) -> usize {
         .count()
 }
 
+pub fn owning_nodes_for_path(graph: &AtlasGraph, path: &RepoRelativePath) -> Vec<AtlasId> {
+    let mut owners = Vec::new();
+    for node in &graph.nodes {
+        if node
+            .owns
+            .iter()
+            .any(|selector| path_matches_selector(path, selector))
+        {
+            owners.push(node.id.clone());
+        }
+    }
+
+    owners.sort();
+    owners.dedup();
+    owners
+}
+
 pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResponse {
     let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
     let mut uncovered = BTreeMap::<RepoRelativePath, Vec<String>>::new();
@@ -4093,6 +4110,44 @@ mod golden {
             Some("crates/engine/src/lib.rs")
         );
         assert_eq!(first.get("owners"), Some(&json!(["@ownerscope"])));
+    }
+
+    #[test]
+    fn owning_nodes_for_path_returns_stable_sorted_unique_ids() {
+        let mut graph = build_atlas("valid-minimal");
+        graph.nodes.push(AtlasNode {
+            id: AtlasId::parse("scen:extra-owner").unwrap(),
+            kind: NodeKind::Scenario,
+            role: NodeRole::Proof,
+            title: "Extra owning scenario".to_string(),
+            summary: None,
+            owns: vec![PathSelector::new("crates/engine/**/*.rs")],
+            touches: vec![],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/extra-owner.atlas.yaml")),
+        });
+        graph.nodes.push(AtlasNode {
+            id: AtlasId::parse("claim:extra-owner").unwrap(),
+            kind: NodeKind::Claim,
+            role: NodeRole::Document,
+            title: "Duplicate owning scenario".to_string(),
+            summary: None,
+            owns: vec![PathSelector::new("crates/engine/**/*.rs")],
+            touches: vec![],
+            attrs: std::collections::BTreeMap::new(),
+            provenance: Provenance::new(RepoRelativePath::new("atlas/extra-owner.atlas.yaml")),
+        });
+
+        let owners =
+            owning_nodes_for_path(&graph, &RepoRelativePath::new("crates/engine/src/lib.rs"));
+        assert_eq!(
+            owners,
+            vec![
+                AtlasId::parse("claim:extra-owner").unwrap(),
+                AtlasId::parse("scen:example-build").unwrap(),
+                AtlasId::parse("scen:extra-owner").unwrap(),
+            ]
+        );
     }
 
     fn render_why_json(
