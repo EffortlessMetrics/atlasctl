@@ -84,6 +84,7 @@ nodes:
     summary: The ci-full task ensures all repo standards are met before release.
     touches:
       - atlas/core.atlas.yaml
+      - atlas.toml
       - AGENTS.md
       - README.md
       - Cargo.toml
@@ -92,6 +93,7 @@ nodes:
       - docs/**/*.md
       - docs/handoffs/*.md
       - schemas/*.json
+      - policy/**/*.toml
       - .codex/**
       - xtask/**
 
