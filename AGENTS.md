@@ -65,3 +65,6 @@ cargo run -p xtask -- docs-check
   - remove scratch/generated files created for experiments
   - clear stale cargo artifacts when they interfere with commands
   - leave `git status` clean
+- Maintain explicit goal artifacts:
+  - archive completed active-goal manifests under `.codex/goals/archive/`
+  - keep `.codex/goals/active.toml` aligned to the current operational lane
