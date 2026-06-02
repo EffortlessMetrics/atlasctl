@@ -3,6 +3,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::process::Command as StdCommand;
@@ -755,6 +756,82 @@ fn test_impacted_by_paths() {
         .stdout(predicate::str::contains("Impact Analysis:"))
         .stdout(predicate::str::contains("crate:engine"))
         .stdout(predicate::str::contains("scen:example-build"));
+}
+
+#[test]
+fn test_impacted_by_directory_path_expands_nested_files() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_config = r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs", "policy"]
+ignore = ["target", ".git"]
+"#;
+    std::fs::write(temp_dir.path().join("atlas.toml"), atlas_config).unwrap();
+    let policy_dir = temp_dir.path().join("policy");
+    std::fs::create_dir_all(&policy_dir).unwrap();
+    std::fs::create_dir_all(policy_dir.join("nested")).unwrap();
+    let policy_file = r#"
+ [atlas]
+id = "policy_ledger:cli-policy"
+kind = "policy_ledger"
+title = "CLI policy test"
+summary = "Policy ledger for CLI integration tests."
+surfaces = ["policy/**/*.toml"]
+proves = ["cmd:docs-check"]
+"#;
+    std::fs::write(policy_dir.join("cli-policy.toml"), policy_file).unwrap();
+    std::fs::write(policy_dir.join("other.txt"), b"supporting file".as_slice()).unwrap();
+    std::fs::write(
+        policy_dir.join("nested").join("nested-policy.toml"),
+        policy_file,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "policy/",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run atlasctl-cli");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let payload: Value = serde_json::from_str(&stdout).unwrap();
+    let payload = payload["payload"].as_object().unwrap();
+    let changed_paths = payload["changed_paths"].as_array().unwrap();
+    let covered_paths: Vec<_> = changed_paths
+        .iter()
+        .map(|p| p["path"].as_str().unwrap())
+        .collect();
+
+    assert!(covered_paths.contains(&"policy/cli-policy.toml"));
+    assert!(covered_paths.contains(&"policy/nested/nested-policy.toml"));
+    assert!(!payload["uncovered"].as_array().unwrap().is_empty());
+    assert!(
+        payload["uncovered"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|path| path["path"] == "policy/other.txt")
+    );
+
+    let impacted_ids: Vec<_> = payload["impacted"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["node"]["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(impacted_ids.contains(&"policy_ledger:cli-policy".to_string()));
 }
 
 #[test]
