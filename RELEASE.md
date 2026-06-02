@@ -84,7 +84,7 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 ### Test Coverage
 
-- **111+ tests** across all crates
+- **161 tests** across all crates
 - **BDD tests**: Scenario-based tests validating graph semantics
 - **Property tests**: Proptest-based tests for determinism and integrity
 - **Golden file tests**: Snapshot tests for JSON, Markdown, and GH summaries
@@ -94,8 +94,8 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 The project successfully uses `atlasctl` to track its own behavior:
 
-- **34 nodes** representing requirements, scenarios, ADRs, fixtures, commands, and artifacts
-- **38 edges** representing relationships between nodes
+- **42 nodes** representing requirements, scenarios, ADRs, commands, artifacts, support tiers, policy ledgers, plans, and claims
+- **56 edges** representing relationships across the full proof-topology stack
 - **0 diagnostics** - clean validation
 
 ### Known Limitations
@@ -103,7 +103,7 @@ The project successfully uses `atlasctl` to track its own behavior:
 1. **Rust-only**: Currently optimized for Rust-style repositories with `Cargo.toml` files
 2. **Local-only**: No remote service integration or distributed discovery
 3. **Manual metadata**: Requires explicit metadata declarations; does not infer from code
-4. **Single format**: YAML fragments and markdown frontmatter only (no TOML or JSON fragments yet)
+4. **Primary format**: YAML fragments and markdown frontmatter for repository truth declarations (policy/atlas config uses TOML where appropriate)
 5. **No cross-tool integration**: No integrations with other tools or services
 
 ### Future Roadmap
@@ -122,7 +122,6 @@ Before tagging a release:
 - `cargo fmt --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- `cargo run -p xtask -- mutants` (mutation testing against diff-critical paths)
 - Path portability checks pass (no absolute or machine-local path leakage)
 - `cargo run -p atlasctl-cli -- check --profile ci` (Zero-warning self-atlas)
 
