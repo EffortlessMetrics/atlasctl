@@ -84,18 +84,30 @@ nodes:
     summary: The ci-full task ensures all repo standards are met before release.
     touches:
       - atlas/core.atlas.yaml
+      - atlas/*.yaml
+      - .gemini/**/*.json
+      - .gitignore
       - atlas.toml
       - AGENTS.md
       - README.md
+      - BUILDING.md
+      - TESTING.md
       - Cargo.toml
       - Cargo.lock
       - crates/atlasctl-*/**
+      - codecov.yml
+      - fixtures/**/*.md
+      - fixtures/**/*.toml
+      - fixtures/**/*.rs
+      - fixtures/**/*.yaml
       - docs/**/*.md
       - docs/handoffs/*.md
       - schemas/*.json
       - policy/**/*.toml
       - .codex/**
       - xtask/**
+      - justfile
+      - rust-toolchain.toml
 
 edges:
   - from: scen:build-emits-canonical-atlas
