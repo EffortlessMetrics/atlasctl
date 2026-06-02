@@ -9,6 +9,10 @@ The source-of-truth stack proof-topology closeout follow-up includes:
 - Review-packet UX hardening for changed-path, owner, and scope summary reporting.
 - Machine-readable `review-packet` output (`--format json`) with `impact` envelope payload and `command: review-packet`.
 - Path normalization/compatibility fixes for `why` and `impacted` path inputs.
+- `why --path` now returns actionable guidance for no-match cases:
+  - missing typo/missing path guidance,
+  - existing orphan-path metadata coverage guidance,
+  - safer recursive-touch matching defaults.
 - Dogfood sample evidence added for local follow-up change window.
 - Additional scope diagnostics for doc/generation boundary handling.
 
@@ -17,7 +21,7 @@ The source-of-truth stack proof-topology closeout follow-up includes:
 The closeout changes were verified with:
 
 - `rtk cargo fmt --all -- --check`
-- `rtk cargo test --workspace` (168 tests)
+- `rtk cargo test --workspace` (197 tests)
 - `rtk cargo run -p xtask -- ci-full`
 - `rtk cargo run -p xtask -- docs-check`
 - `rtk cargo run -p xtask -- schema --check`
@@ -25,6 +29,7 @@ The closeout changes were verified with:
 - `rtk cargo run -p atlasctl-cli -- impacted --base main --head HEAD --format review-packet --repo-root .`
 - `rtk cargo run -p atlasctl-cli -- why --repo-root . --path crates/atlasctl-core/src/lib.rs`
 - `rtk cargo run -p atlasctl-cli -- impacted --base HEAD~1 --head HEAD --format review-packet --repo-root .`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_why_by_missing_path`
 
 ### Release Bar
 
@@ -116,7 +121,7 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 ### Test Coverage
 
-- **161 tests** across all crates
+- **197 tests** across all crates
 - **BDD tests**: Scenario-based tests validating graph semantics
 - **Property tests**: Proptest-based tests for determinism and integrity
 - **Golden file tests**: Snapshot tests for JSON, Markdown, and GH summaries
@@ -126,8 +131,8 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 The project successfully uses `atlasctl` to track its own behavior:
 
-- **42 nodes** representing requirements, scenarios, ADRs, commands, artifacts, support tiers, policy ledgers, plans, and claims
-- **56 edges** representing relationships across the full proof-topology stack
+- **45 nodes** representing requirements, scenarios, ADRs, commands, artifacts, support tiers, policy ledgers, plans, and claims
+- **61 edges** representing relationships across the full proof-topology stack
 - **0 diagnostics** - clean validation
 
 ### Known Limitations

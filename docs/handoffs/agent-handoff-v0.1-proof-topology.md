@@ -7,6 +7,12 @@
 - Foundation closeout PRs are done; current focus is post-closeout review-router readiness.
 - `.codex/goals/active.toml` now points to `goal:advance-review-packet-router` and `plan:post-closeout-router-readiness-v0-2`.
 - This lane has been archived into `.codex/goals/archive/ship-proof-topology-stack-v0-1.toml`.
+- Open PR hygiene audit (live):
+  - `#2` `Enable Factory Droid automated code review` (head `add-factory-workflows-20260504024339`, unrelated infra lane).
+
+## Open PR hygiene check
+
+From this lane's perspective, the only open PR in this repository is #2 and it is outside the source-of-truth stack source work.
 
 ## What to run when continuing this lane
 
