@@ -645,23 +645,6 @@ edges:
         Command::Why(args) => {
             let path_subject = normalize_path_input(&args.subject);
 
-            if args.path
-                && !path_has_glob_chars(&path_subject)
-                && !args
-                    .common
-                    .repo_root
-                    .join(&path_subject)
-                    .into_std_path_buf()
-                    .exists()
-            {
-                return if args.format == OutputArg::Text {
-                    println!("No matching node found.");
-                    Ok(ExitCode::Ok)
-                } else {
-                    Err("No matching node found".to_string())
-                };
-            }
-
             let subject = if args.path {
                 WhySubject::Path(RepoRelativePath::new(path_subject))
             } else {
@@ -678,45 +661,44 @@ edges:
                 })
                 .map_err(|err| format!("why failed: {err}"))?;
 
+            if outcome.response.is_none() {
+                return if args.format == OutputArg::Text {
+                    println!("No matching node found.");
+                    Ok(ExitCode::Ok)
+                } else {
+                    Err("No matching node found".to_string())
+                };
+            }
+
+            let response = outcome.response.as_ref().ok_or("No matching node found")?;
+
             match args.format {
                 OutputArg::Text => print_why(&outcome),
                 OutputArg::Json => {
                     let json = service
                         .renderer
-                        .render_why(
-                            outcome.response.as_ref().ok_or("no response")?,
-                            atlasctl_types::RenderFormat::Json,
-                        )
+                        .render_why(response, atlasctl_types::RenderFormat::Json)
                         .map_err(|err| format!("failed to render JSON: {err}"))?;
                     println!("{json}");
                 }
                 OutputArg::Markdown => {
                     let md = service
                         .renderer
-                        .render_why(
-                            outcome.response.as_ref().ok_or("no response")?,
-                            atlasctl_types::RenderFormat::Markdown,
-                        )
+                        .render_why(response, atlasctl_types::RenderFormat::Markdown)
                         .map_err(|err| format!("failed to render Markdown: {err}"))?;
                     println!("{md}");
                 }
                 OutputArg::GhSummary => {
                     let md = service
                         .renderer
-                        .render_why(
-                            outcome.response.as_ref().ok_or("no response")?,
-                            atlasctl_types::RenderFormat::GitHubSummary,
-                        )
+                        .render_why(response, atlasctl_types::RenderFormat::GitHubSummary)
                         .map_err(|err| format!("failed to render GitHub summary: {err}"))?;
                     println!("{md}");
                 }
                 OutputArg::ReviewPacket => {
                     let md = service
                         .renderer
-                        .render_why(
-                            outcome.response.as_ref().ok_or("no response")?,
-                            atlasctl_types::RenderFormat::ReviewPacket,
-                        )
+                        .render_why(response, atlasctl_types::RenderFormat::ReviewPacket)
                         .map_err(|err| format!("failed to render review packet: {err}"))?;
                     println!("{md}");
                 }
@@ -1280,10 +1262,6 @@ fn normalize_slug(input: &str) -> String {
     } else {
         output
     }
-}
-
-fn path_has_glob_chars(value: &str) -> bool {
-    value.contains('*') || value.contains('?') || value.contains('[')
 }
 
 fn normalize_path_input(value: &str) -> String {
