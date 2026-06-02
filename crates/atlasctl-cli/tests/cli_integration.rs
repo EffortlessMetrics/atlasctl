@@ -599,6 +599,27 @@ fn test_why_by_missing_path_reports_no_match() {
 }
 
 #[test]
+fn test_why_by_deleted_path_still_finds_owned_node() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let deleted_path = temp_dir.path().join("crates/engine/src/lib.rs");
+    std::fs::remove_file(&deleted_path).expect("failed to remove fixture source file");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Node: scen:example-build"))
+        .stdout(predicate::str::contains("Proof chain:"));
+}
+
+#[test]
 fn test_why_by_missing_path_json_fails() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -609,9 +630,29 @@ fn test_why_by_missing_path_json_fails() {
             "--repo-root",
             temp_dir.path().to_str().unwrap(),
             "--path",
-            "crates/atlasctl-core/src/lib.r",
+            "totally/missing/path.rs",
             "--format",
             "json",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: No matching node found"));
+}
+
+#[test]
+fn test_why_by_missing_path_review_packet_fails() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "totally/missing/path.rs",
+            "--format",
+            "review-packet",
         ])
         .assert()
         .failure()
