@@ -1966,7 +1966,7 @@ fn test_review_packet_alias_includes_scope_next_actions() {
 }
 
 #[test]
-fn test_review_packet_includes_owners_section() {
+fn test_review_packet_includes_owners_section_from_graph_metadata() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
     Command::cargo_bin("atlasctl-cli")
@@ -1981,9 +1981,7 @@ fn test_review_packet_includes_owners_section() {
         .assert()
         .success()
         .stdout(predicate::str::contains("## 👤 Owners"))
-        .stdout(predicate::str::contains(
-            "_No owners linked to current impact._",
-        ));
+        .stdout(predicate::str::contains("- scen:example-build"));
 }
 
 #[test]
