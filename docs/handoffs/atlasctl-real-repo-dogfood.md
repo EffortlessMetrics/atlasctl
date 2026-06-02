@@ -1,38 +1,60 @@
 # atlasctl Real-Repo Dogfood Scorecard
 
-## Target
+## Scope
+
+This is the first scorecard for `atlasctl` itself as a real-repo consumer of atlasctl metadata. It does not use fixture repos.
+
 - **Repo:** `H:\Code\Rust\atlasctl`
-- **Diff:** `main..HEAD`
-- **Commands:**
-  - `atlasctl doctor --profile ci --repo-root .`
-  - `atlasctl impacted --base main --head HEAD --format review-packet --repo-root .`
-  - `atlasctl impacted --base main --head HEAD --format json --repo-root .`
-  - `atlasctl why --path crates/atlasctl-cli/src/main.rs --format markdown --repo-root .`
+- **Command surface under review:** `doctor`, `impacted`, `why`
 
-## Execution Notes
-- The JSON form is stored locally at `.tmp/atlasctl-dogfood.json` for tooling-only verification and is not committed.
-- Command runs completed successfully without diagnostics from `doctor`.
+## Method
 
-## Results
+For each sampled historical PR, run:
 
-| Metric | Value |
-| --- | --- |
-| Total changed paths | 32 |
-| Covered by ownership/touches selectors | 4 |
-| Uncovered changed paths | 28 |
-| Uncovered rate | 87.5% |
-| Impacted nodes in review packet | 16 |
-| Missing-evidence diagnostics | 0 |
-| Scope warning count | 3 |
-| Suggested-fix entries | 3 |
-| Why-query answer for touched file | returns deterministic proof chain with `scen:automated-scaffolding-reduces-friction` |
+```bash
+cargo run -p atlasctl-cli -- doctor --repo-root . --profile ci
+cargo run -p atlasctl-cli -- impacted --repo-root . --base <base> --head <head> --format review-packet
+cargo run -p atlasctl-cli -- impacted --repo-root . --base <base> --head <head> --format json
+cargo run -p atlasctl-cli -- why --repo-root . --path crates/atlasctl-core/src/lib.rs
+```
 
-## Diagnostics observed
-- Path-set warning: mixed docs + implementation change scope
-- Path ownership warning: many files without selector coverage
-- Protocol/schema warning: schema change not linked to protocol spec/proposal artifact metadata
+Then derive:
+- changed path count
+- uncovered count / uncovered rate
+- impacted node count
+- missing evidence count
+- scope warning count
+- response latency for command set (time-to-answer)
 
-## Recommended next action for repo hygiene
-- Expand `owns`/`touches` coverage so generated support files, snapshots, and docs artifacts participate in the same source-of-truth model as behavior/proof/code.
-- Link schema and protocol-protocol files to explicit roadmap/spec/ADR nodes as part of PR scoping.
-- Keep PRs narrower in mixed doc/implementation scenarios so review packets stay deterministic and scoped.
+## Sample Set (historical real PR ranges)
+
+| Sample | Base..Head | Changed Paths | Covered? | Uncovered | Uncovered Rate | Impacted Nodes | Missing Evidence | Scope Warnings |
+|---|---|---:|---:|---:|---:|---:|---:|
+| PR #21 foundation | `83d1049..12ea4da` | 39 | 39 | 0 | 0.0% | 31 | 0 | 1 |
+| PR #23 policy+discovery | `8e64863..c933cbe` | 4 | 4 | 0 | 0.0% | 26 | 0 | 0 |
+| PR #24 dogfood-surface | `c933cbe..7f0561c` | 1 | 1 | 0 | 0.0% | 10 | 0 | 0 |
+
+## What the scorecard shows
+
+- Zero uncovered paths in all three sampled PR ranges after `scen:full-release-verification` surface expansion from PR #24.
+- One known scope warning remains for PR #21: mixed docs + implementation surface.
+- No missing-evidence diagnostics in any sampled range.
+- `review-packet` consistently produced executable proof command sets and deterministic impacted truth surface sections for all samples.
+
+## Real-repo command latency (sample: current `main`)
+
+- `doctor --profile ci`: **~3.45s**
+- `impacted --format review-packet`: **~3.93s**
+- `why --path crates/atlasctl-core/src/lib.rs`: **~3.47s**
+
+Command runs remained stable and produced consistent output for this repo as evidence carrier.
+
+## Residual gaps for lane continuation
+
+- **Ambiguous selector rate** and **maintainer correction rate** are still not directly emitted by current `impacted` JSON; these need either a CLI metric extension or scorecard-side script.
+- External-repo dogfood is still pending: this scorecard is a required first milestone, with the next step being one additional repo for portability.
+
+## Suggested follow-up
+
+- Keep PR scope discipline from this sample; mixed docs/implementation PRs can trigger actionable scope warnings and weaken review clarity.
+- Expand scorecard tooling in a follow-up PR to emit and persist these additional metrics automatically.
