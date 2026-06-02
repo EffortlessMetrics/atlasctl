@@ -1,7 +1,7 @@
-goal = "goal:ship-proof-topology-stack"
-plan = "plan:closeout-proof-topology-v0-1"
+goal = "goal:advance-review-packet-router"
+plan = "plan:post-closeout-router-readiness-v0-2"
 proposal = "proposal:proof-topology-stack"
 spec = "spec:proof-topology-stack"
 ready_work_items = [
-  "scen:full-release-verification",
+  "scen:post-closeout-review-surface-hardening",
 ]
