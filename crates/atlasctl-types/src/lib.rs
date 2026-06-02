@@ -954,6 +954,8 @@ pub struct ImpactHit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImpactResponse {
     pub impacted: Vec<ImpactHit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_goal: Option<ActiveGoalConfig>,
     pub uncovered: Vec<ChangedPath>,
     #[serde(default)]
     pub changed_paths: Vec<ChangedPath>,

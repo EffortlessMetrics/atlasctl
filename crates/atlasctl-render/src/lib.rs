@@ -2,8 +2,8 @@
 
 use atlasctl_app::{RenderError, RenderPort};
 use atlasctl_types::{
-    AtlasDiagnostic, AtlasGraph, AtlasNode, EdgeKind, ImpactEnvelope, ImpactResponse, NodeKind,
-    RenderFormat, WhyEnvelope, WhyResponse,
+    ActiveGoalConfig, AtlasDiagnostic, AtlasGraph, AtlasNode, ChangedPath, EdgeKind,
+    ImpactEnvelope, ImpactResponse, NodeKind, RenderFormat, WhyEnvelope, WhyResponse,
 };
 use std::collections::BTreeSet;
 
@@ -242,6 +242,52 @@ fn render_review_packet(response: &ImpactResponse) -> String {
         out.push_str("- Estimated coverage: `n/a`\n\n");
     }
 
+    out.push_str("## 🎯 Why this matters\n\n");
+    let impacted_requirements = response
+        .impacted
+        .iter()
+        .filter(|hit| hit.node.kind == NodeKind::Requirement)
+        .map(|hit| hit.node.id.clone())
+        .collect::<Vec<_>>();
+    let impacted_scenarios = response
+        .impacted
+        .iter()
+        .filter(|hit| hit.node.kind == NodeKind::Scenario)
+        .map(|hit| hit.node.id.clone())
+        .collect::<Vec<_>>();
+
+    if impacted_requirements.is_empty() && impacted_scenarios.is_empty() {
+        out.push_str("_No requirement/scenario impact is currently detected._\n\n");
+    } else {
+        if !impacted_requirements.is_empty() {
+            let reqs = impacted_requirements
+                .iter()
+                .map(|id| format!("`{id}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("- Behavioral requirements: {}\n", reqs));
+        }
+        if !impacted_scenarios.is_empty() {
+            let scen = impacted_scenarios
+                .iter()
+                .map(|id| format!("`{id}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("- Behavioral scenarios: {}\n", scen));
+        }
+        out.push('\n');
+    }
+
+    if let Some(active_goal) = &response.active_goal {
+        let impacted_ids = response
+            .impacted
+            .iter()
+            .map(|hit| hit.node.id.clone())
+            .collect::<BTreeSet<_>>();
+
+        render_active_goal_context(&mut out, active_goal, &impacted_ids);
+    }
+
     out.push_str("## 📂 Changed Paths\n\n");
     if response.changed_paths.is_empty() {
         out.push_str("_No paths provided._\n\n");
@@ -269,6 +315,28 @@ fn render_review_packet(response: &ImpactResponse) -> String {
     } else {
         for owner in owners {
             out.push_str(&format!("- {owner}\n"));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## 👥 Ownership by Path\n\n");
+    if response.changed_paths.is_empty() {
+        out.push_str("_No changed paths provided._\n\n");
+    } else {
+        for path in &response.changed_paths {
+            if path.owners.is_empty() {
+                out.push_str(&format!(
+                    "- `{}`: _No owners linked to this path_\n",
+                    path.path
+                ));
+            } else {
+                let owners = {
+                    let mut owners = path.owners.clone();
+                    owners.sort_unstable();
+                    owners.join(", ")
+                };
+                out.push_str(&format!("- `{}`: {owners}\n", path.path));
+            }
         }
         out.push('\n');
     }
@@ -315,16 +383,20 @@ fn render_review_packet(response: &ImpactResponse) -> String {
     });
 
     out.push_str("## 🧪 Proof Commands to Run\n\n");
-    let commands: Vec<_> = response
+    let mut commands: Vec<_> = response
         .impacted
         .iter()
         .filter(|hit| hit.node.kind == NodeKind::Command)
         .collect();
+    commands.sort_by(|left, right| left.node.id.cmp(&right.node.id));
     if commands.is_empty() {
         out.push_str("_No command nodes are currently impacted._\n\n");
     } else {
         for hit in commands {
-            out.push_str(&format!("- `{}` — {}\n", hit.node.id, hit.node.title));
+            out.push_str(&format!(
+                "- `{}` — {} ({})\n",
+                hit.node.id, hit.node.title, hit.reason
+            ));
         }
         out.push('\n');
     }
@@ -368,10 +440,21 @@ fn render_review_packet(response: &ImpactResponse) -> String {
     }
 
     out.push_str("## ✅ Next Actions\n\n");
-    if response.suggested_fixes.is_empty() {
+    let mut suggested_actions = response.suggested_fixes.clone();
+    if let Some(active_goal) = &response.active_goal {
+        render_active_goal_next_actions(
+            active_goal,
+            &response.changed_paths,
+            &response.impacted,
+            &mut suggested_actions,
+        );
+    }
+
+    if suggested_actions.is_empty() {
         out.push_str("_No follow-up metadata fixes are inferred from current diagnostics._\n\n");
     } else {
-        for fix in &response.suggested_fixes {
+        suggested_actions.sort();
+        for fix in suggested_actions {
             out.push_str(&format!("- {fix}\n"));
         }
         out.push('\n');
@@ -564,6 +647,90 @@ fn why_chain_label(
             atlasctl_types::TraceDirection::Incoming => "is supported by",
             atlasctl_types::TraceDirection::Outgoing => "is exercised by",
             atlasctl_types::TraceDirection::Both => "relates to",
+        }
+    }
+}
+
+fn render_active_goal_context(
+    out: &mut String,
+    active_goal: &ActiveGoalConfig,
+    impacted_ids: &BTreeSet<atlasctl_types::AtlasId>,
+) {
+    out.push_str("## 🎯 Active Goal Context\n\n");
+
+    render_active_goal_ref(out, "Goal", active_goal.goal.as_deref(), impacted_ids);
+    render_active_goal_ref(out, "Plan", active_goal.plan.as_deref(), impacted_ids);
+    render_active_goal_ref(
+        out,
+        "Proposal",
+        active_goal.proposal.as_deref(),
+        impacted_ids,
+    );
+    render_active_goal_ref(out, "Spec", active_goal.spec.as_deref(), impacted_ids);
+
+    out.push_str("- Ready work items:\n");
+    if active_goal.ready_work_items.is_empty() {
+        out.push_str("  - _none_\n\n");
+    } else {
+        for item in &active_goal.ready_work_items {
+            let status = match atlasctl_types::AtlasId::parse(item) {
+                Ok(id) if impacted_ids.contains(&id) => " ✅ impacted",
+                Ok(_) => "",
+                Err(_) => " ❌ invalid id",
+            };
+            out.push_str(&format!("  - `{}`{}\n", item, status));
+        }
+        out.push('\n');
+    }
+}
+
+fn render_active_goal_ref(
+    out: &mut String,
+    label: &str,
+    value: Option<&str>,
+    impacted_ids: &BTreeSet<atlasctl_types::AtlasId>,
+) {
+    match value {
+        Some(raw) => {
+            let status = match atlasctl_types::AtlasId::parse(raw) {
+                Ok(id) if impacted_ids.contains(&id) => " ✅ impacted",
+                Ok(_) => " (not currently impacted)",
+                Err(_) => " (invalid atlas id)",
+            };
+            out.push_str(&format!("- {label}: `{}`{}\n", raw, status));
+        }
+        None => {
+            out.push_str(&format!("- {label}: _not configured_\n"));
+        }
+    }
+}
+
+fn render_active_goal_next_actions(
+    active_goal: &ActiveGoalConfig,
+    changed_paths: &[ChangedPath],
+    impacted: &[atlasctl_types::ImpactHit],
+    actions: &mut Vec<String>,
+) {
+    if changed_paths.is_empty() {
+        return;
+    }
+
+    if active_goal.ready_work_items.is_empty() {
+        return;
+    }
+
+    let impacted_ids: BTreeSet<_> = impacted.iter().map(|hit| hit.node.id.clone()).collect();
+    for item in &active_goal.ready_work_items {
+        let suggestion = match atlasctl_types::AtlasId::parse(item) {
+            Ok(id) if impacted_ids.contains(&id) => {
+                continue;
+            }
+            Ok(_) => format!("Advance active goal work item `{item}` in the next PR."),
+            Err(_) => format!("Fix active goal work item `{item}`: invalid atlas id."),
+        };
+
+        if !actions.iter().any(|existing| existing == &suggestion) {
+            actions.push(suggestion);
         }
     }
 }

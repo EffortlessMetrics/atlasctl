@@ -21,6 +21,44 @@
     }
   },
   "definitions": {
+    "ActiveGoalConfig": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plan": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proposal": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ready_work_items": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "spec": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "AtlasDiagnostic": {
       "type": "object",
       "required": [
@@ -189,6 +227,16 @@
         "uncovered"
       ],
       "properties": {
+        "active_goal": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ActiveGoalConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "changed_paths": {
           "default": [],
           "type": "array",

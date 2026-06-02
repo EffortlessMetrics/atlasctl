@@ -1113,6 +1113,32 @@ fn test_impacted_review_packet() {
 }
 
 #[test]
+fn test_review_packet_explains_requirements_and_scenarios() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 🎯 Why this matters"))
+        .stdout(predicate::str::contains(
+            "- Behavioral requirements: `req:example`",
+        ))
+        .stdout(predicate::str::contains(
+            "- Behavioral scenarios: `scen:example-build`",
+        ));
+}
+
+#[test]
 fn test_review_packet_includes_summary_counts() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -2023,6 +2049,290 @@ fn test_review_packet_includes_owners_section_from_graph_metadata() {
         .success()
         .stdout(predicate::str::contains("## 👤 Owners"))
         .stdout(predicate::str::contains("- scen:example-build"));
+}
+
+#[test]
+fn test_review_packet_includes_ownership_by_path_section() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let codeowners = temp_dir.path().join("CODEOWNERS");
+    fs::write(&codeowners, "crates/engine/src/lib.rs @engine-team\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 👥 Ownership by Path"))
+        .stdout(predicate::str::contains(
+            "- `crates/engine/src/lib.rs`: @engine-team",
+        ));
+}
+
+#[test]
+fn test_review_packet_includes_proof_reasons_in_proof_command_list() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 🧪 Proof Commands to Run"))
+        .stdout(predicate::str::contains(
+            "`cmd:ci-fast` — Fast CI (related to `scen:example-build` via `runs_with`)",
+        ));
+}
+
+#[test]
+fn test_review_packet_includes_active_goal_context() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    std::fs::create_dir_all(temp_dir.path().join(".codex/goals")).unwrap();
+    std::fs::write(
+        temp_dir.path().join(".codex/goals/active.toml"),
+        r#"goal = "goal:ship-proof-topology-stack"
+plan = "plan:post-closeout-review-surface-hardening"
+proposal = "proposal:review-packet-router"
+spec = "spec:router-proof-contract"
+ready_work_items = ["scen:example-build"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.path().join("atlas/active-goal-context.atlas.yaml"),
+        r#"nodes:
+  - id: goal:ship-proof-topology-stack
+    kind: goal
+    title: Ship proof topology stack
+    touches:
+      - crates/engine/src/lib.rs
+  - id: plan:post-closeout-review-surface-hardening
+    kind: plan
+    title: Post-closeout review-surface hardening
+    touches:
+      - crates/engine/src/lib.rs
+  - id: proposal:review-packet-router
+    kind: proposal
+    title: Review packet router proposal
+    touches:
+      - crates/engine/src/lib.rs
+  - id: spec:router-proof-contract
+    kind: spec
+    title: Review packet governance spec
+    touches:
+      - crates/engine/src/lib.rs
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 🎯 Active Goal Context"))
+        .stdout(predicate::str::contains(
+            "- Goal: `goal:ship-proof-topology-stack` ✅ impacted",
+        ))
+        .stdout(predicate::str::contains(
+            "- Plan: `plan:post-closeout-review-surface-hardening` ✅ impacted",
+        ))
+        .stdout(predicate::str::contains(
+            "- Proposal: `proposal:review-packet-router` ✅ impacted",
+        ))
+        .stdout(predicate::str::contains(
+            "- Spec: `spec:router-proof-contract` ✅ impacted",
+        ))
+        .stdout(predicate::str::contains("- Ready work items:"))
+        .stdout(predicate::str::contains("scen:example-build` ✅ impacted"));
+}
+
+#[test]
+fn test_review_packet_next_actions_include_active_goal_ready_work_item_suggestion() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    std::fs::create_dir_all(temp_dir.path().join(".codex/goals")).unwrap();
+    std::fs::write(
+        temp_dir.path().join(".codex/goals/active.toml"),
+        r#"goal = "goal:ship-proof-topology-stack"
+plan = "plan:post-closeout-review-surface-hardening"
+proposal = "proposal:review-packet-router"
+spec = "spec:router-proof-contract"
+ready_work_items = ["scen:future-scenario", "scen:example-build"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.path().join("atlas/active-goal-context.atlas.yaml"),
+        r#"nodes:
+  - id: goal:ship-proof-topology-stack
+    kind: goal
+    title: Ship proof topology stack
+    touches:
+      - crates/engine/src/lib.rs
+  - id: plan:post-closeout-review-surface-hardening
+    kind: plan
+    title: Post-closeout review-surface hardening
+    touches:
+      - crates/engine/src/lib.rs
+  - id: proposal:review-packet-router
+    kind: proposal
+    title: Review packet router proposal
+    touches:
+      - crates/engine/src/lib.rs
+  - id: spec:router-proof-contract
+    kind: spec
+    title: Review packet governance spec
+    touches:
+      - crates/engine/src/lib.rs
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## ✅ Next Actions"))
+        .stdout(predicate::str::contains(
+            "Advance active goal work item `scen:future-scenario` in the next PR.",
+        ));
+}
+
+#[test]
+fn test_review_packet_next_actions_include_invalid_active_goal_work_item_warning() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    std::fs::create_dir_all(temp_dir.path().join(".codex/goals")).unwrap();
+    std::fs::write(
+        temp_dir.path().join(".codex/goals/active.toml"),
+        r#"goal = "goal:ship-proof-topology-stack"
+plan = "plan:post-closeout-review-surface-hardening"
+proposal = "proposal:proof-topology-stack"
+spec = "spec:router-proof-contract"
+ready_work_items = ["!!!not-a-valid-id"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## ✅ Next Actions"))
+        .stdout(predicate::str::contains(
+            "Fix active goal work item `!!!not-a-valid-id`: invalid atlas id.",
+        ));
+}
+
+#[test]
+fn test_impacted_json_includes_active_goal_context() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    std::fs::create_dir_all(temp_dir.path().join(".codex/goals")).unwrap();
+    std::fs::write(
+        temp_dir.path().join(".codex/goals/active.toml"),
+        r#"goal = "goal:ship-proof-topology-stack"
+plan = "plan:post-closeout-review-surface-hardening"
+proposal = "proposal:review-packet-router"
+spec = "spec:router-proof-contract"
+ready_work_items = ["scen:example-build"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        temp_dir.path().join("atlas/active-goal-context.atlas.yaml"),
+        r#"nodes:
+  - id: goal:ship-proof-topology-stack
+    kind: goal
+    title: Ship proof topology stack
+    touches:
+      - crates/engine/src/lib.rs
+  - id: plan:post-closeout-review-surface-hardening
+    kind: plan
+    title: Post-closeout review-surface hardening
+    touches:
+      - crates/engine/src/lib.rs
+  - id: proposal:review-packet-router
+    kind: proposal
+    title: Review packet router proposal
+    touches:
+      - crates/engine/src/lib.rs
+  - id: spec:router-proof-contract
+    kind: spec
+    title: Review packet governance spec
+    touches:
+      - crates/engine/src/lib.rs
+"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run atlasctl-cli");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let payload: Value = serde_json::from_str(&stdout).unwrap();
+    let payload = &payload["payload"];
+    let active = payload["active_goal"]
+        .as_object()
+        .expect("active goal should exist");
+    assert_eq!(active["goal"], "goal:ship-proof-topology-stack");
+    assert_eq!(
+        active["plan"],
+        "plan:post-closeout-review-surface-hardening"
+    );
+    assert_eq!(active["proposal"], "proposal:review-packet-router");
+    assert_eq!(active["spec"], "spec:router-proof-contract");
+
+    let ready = active["ready_work_items"]
+        .as_array()
+        .expect("ready work items should be array");
+    assert!(ready.contains(&Value::String("scen:example-build".into())));
 }
 
 #[test]
