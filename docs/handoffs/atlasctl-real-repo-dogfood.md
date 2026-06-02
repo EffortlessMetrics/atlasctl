@@ -35,6 +35,7 @@ Then derive:
 | PR #24 dogfood-surface | `c933cbe..7f0561c` | 1 | 1 | 0 | 0.0% | 10 | 0 | 0 |
 | Local follow-up (`main`) | `9ba6430..5d44572` | 6 | 6 | 0 | 0.0% | 14 | 0 | 1 |
 | External sample: shiplog PR #150 | `e0f5c7c..7111ada` | 9 | 0 | 9 | 100% | 0 | 0 | 3 |
+| External sample: shiplog follow-up | `e303d69..dc7d351` | 8 | 0 | 8 | 100% | 0 | 0 | 3 |
 
 ## Real-repo portability check (external reference)
 
@@ -62,13 +63,23 @@ Observed behavior:
 - `review-packet` for this sample reports exactly that the changed path is uncovered and suggests adding `owns`/`touches` coverage.
 - `why` on a source file returns `No matching node found`, because no source-of-truth metadata is yet defined for tokmd.
 
-Additional external sample from `H:\Code\Rust\shiplog` (PR #150, `e0f5c7c..7111ada`):
+Additional external sample from `H:\Code\Rust\shiplog`:
+
+- PR #150 (`e0f5c7c..7111ada`) remains useful as historical baseline.
+- PR follow-up (`e303d69..dc7d351`, `xtask` metadata updates):
 
 - `rtk cargo run -p atlasctl-cli -- doctor --repo-root H:\Code\Rust\shiplog --profile ci`
 - `rtk cargo run -p atlasctl-cli -- check --repo-root H:\Code\Rust\shiplog --profile ci`
-- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e0f5c7c --head 7111ada --format review-packet`
-- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e0f5c7c --head 7111ada --format json`
-- `rtk cargo run -p atlasctl-cli -- why --repo-root H:\Code\Rust\shiplog --path xtask/src/tasks/check_support_tiers.rs`
+- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e303d69 --head dc7d351 --format review-packet`
+- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e303d69 --head dc7d351 --format json`
+- `rtk cargo run -p atlasctl-cli -- why --repo-root H:\Code\Rust\shiplog --path xtask/src/cli.rs`
+
+Observed behavior (PR follow-up):
+
+- `doctor` and `check` currently fail with `26` diagnostics (`1` error, `25` warnings). The error is `active_goal_missing_plan`; the dominant warnings are `policy_file_legacy_no_atlas` for policy files without atlas sections plus active-goal incompleteness warnings.
+- `review-packet` reported `8` changed paths, `8` uncovered (`100%` coverage), `0` impacted nodes, and `3` scope warnings.
+- `why` on a changed source file (`xtask/src/cli.rs`) returns `No matching node found`.
+- Command latency on this sample was roughly `~8.3s` for `impacted`, `~7.9s` for `doctor`, and `~8.2s` for `why` on this repo size.
 
 Observed behavior:
 
@@ -97,7 +108,7 @@ Command runs remained stable and produced consistent output for this repo as evi
 - Legacy `policy/*.toml` repositories without Atlas metadata sections now emit non-blocking `policy_file_legacy_no_atlas` warnings and are skipped from atlas discovery, improving review-packet reach while still signaling migration work.
 - This indicates portability work for broader adoption: discoverability scales, but `proof` surfaces are empty without metadata in `atlas.toml` + metadata files.
 - **Ambiguous selector rate** and **maintainer correction rate** are still not directly emitted by current `impacted` JSON; these need either a CLI metric extension or scorecard-side script.
-- Additional external-repo samples are still pending to measure portability variance across repo shapes.
+- Additional external-repo samples are still useful to measure portability variance across repo shapes; current data covers atlasctl (`atlasctl`/`tokmd`) and two nearby shiplog baselines.
 
 ## Suggested follow-up
 
