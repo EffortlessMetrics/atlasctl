@@ -174,7 +174,7 @@ enum ProfileArg {
     Strict,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
 enum OutputArg {
     Text,
     Json,
@@ -616,8 +616,27 @@ edges:
             }
         }
         Command::Why(args) => {
+            let path_subject = normalize_path_input(&args.subject);
+
+            if args.path
+                && !path_has_glob_chars(&path_subject)
+                && !args
+                    .common
+                    .repo_root
+                    .join(&path_subject)
+                    .into_std_path_buf()
+                    .exists()
+            {
+                return if args.format == OutputArg::Text {
+                    println!("No matching node found.");
+                    Ok(ExitCode::Ok)
+                } else {
+                    Err("No matching node found".to_string())
+                };
+            }
+
             let subject = if args.path {
-                WhySubject::Path(RepoRelativePath::new(args.subject))
+                WhySubject::Path(RepoRelativePath::new(path_subject))
             } else {
                 WhySubject::Id(
                     AtlasId::parse(args.subject)
@@ -817,7 +836,7 @@ fn impact_source(
     if let Some(paths) = paths {
         let mut expanded_paths = Vec::new();
         for path in paths {
-            let path = RepoRelativePath::new(path);
+            let path = RepoRelativePath::new(normalize_path_input(&path));
             if should_expand_paths(repo_root, &path) {
                 expanded_paths.extend(expand_path_inputs(repo_root, &path));
             } else {
@@ -1234,4 +1253,12 @@ fn normalize_slug(input: &str) -> String {
     } else {
         output
     }
+}
+
+fn path_has_glob_chars(value: &str) -> bool {
+    value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+fn normalize_path_input(value: &str) -> String {
+    value.replace('\\', "/")
 }

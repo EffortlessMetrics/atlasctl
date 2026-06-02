@@ -563,6 +563,62 @@ fn test_why_by_path() {
 }
 
 #[test]
+fn test_why_by_backslash_path_still_finds_node() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "crates\\engine\\src\\lib.rs",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Proof chain:"));
+}
+
+#[test]
+fn test_why_by_missing_path_reports_no_match() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "crates/atlasctl-core/src/lib.r",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No matching node found."));
+}
+
+#[test]
+fn test_why_by_missing_path_json_fails() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--path",
+            "crates/atlasctl-core/src/lib.r",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error: No matching node found"));
+}
+
+#[test]
 fn test_why_by_policy_path() {
     let temp_dir = setup_temp_fixture("valid-minimal");
     let atlas_config = r#"
@@ -915,6 +971,27 @@ fn test_impacted_uncovered_strict_error() {
 }
 
 #[test]
+fn test_impacted_backslash_path_is_normalized() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "crates\\engine\\src\\lib.rs",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 📈 Impact Summary"))
+        .stdout(predicate::str::contains("- Changed paths: `1`"));
+}
+
+#[test]
 fn test_impacted_review_packet() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -934,6 +1011,29 @@ fn test_impacted_review_packet() {
         .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
         .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"))
         .stdout(predicate::str::contains("## ✅ Next Actions"));
+}
+
+#[test]
+fn test_review_packet_includes_summary_counts() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "unknown/file.txt",
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## 📈 Impact Summary"))
+        .stdout(predicate::str::contains("- Changed paths: `1`"))
+        .stdout(predicate::str::contains("- Uncovered paths: `1`"))
+        .stdout(predicate::str::contains("- Impacted nodes: `0`"));
 }
 
 #[test]
@@ -1870,6 +1970,29 @@ fn test_review_packet_alias_next_actions_include_scope_mix_warning() {
         ))
         .stdout(predicate::str::contains(
             "split the review scope to avoid docs/implementation mix in one change",
+        ))
+        .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_does_not_mix_docs_and_generated_as_scope_mix() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--paths",
+            "docs/adr/0001-example.md",
+            "target/atlas.json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope Warnings"))
+        .stdout(predicate::str::contains(
+            "generated artifact changed without an impacted artifact node",
         ))
         .stdout(predicate::str::contains("Next Actions"));
 }

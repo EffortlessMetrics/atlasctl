@@ -1,5 +1,36 @@
 # RELEASE
 
+## Unreleased / Post-v0.1.0 Closeout Updates
+
+### Lane v0.1.0 Closeout Validation
+
+The source-of-truth stack proof-topology closeout follow-up includes:
+
+- Review-packet UX hardening for changed-path, owner, and scope summary reporting.
+- Path normalization/compatibility fixes for `why` and `impacted` path inputs.
+- Dogfood sample evidence added for local follow-up change window.
+- Additional scope diagnostics for doc/generation boundary handling.
+
+### Verified Evidence
+
+The closeout changes were verified with:
+
+- `rtk cargo fmt --all -- --check`
+- `rtk cargo test --workspace` (168 tests)
+- `rtk cargo run -p xtask -- ci-full`
+- `rtk cargo run -p xtask -- docs-check`
+- `rtk cargo run -p xtask -- schema --check`
+- `rtk cargo run -p atlasctl-cli -- doctor --profile ci --repo-root .`
+- `rtk cargo run -p atlasctl-cli -- impacted --base main --head HEAD --format review-packet --repo-root .`
+- `rtk cargo run -p atlasctl-cli -- why --repo-root . --path crates/atlasctl-core/src/lib.rs`
+- `rtk cargo run -p atlasctl-cli -- impacted --base HEAD~1 --head HEAD --format review-packet --repo-root .`
+
+### Release Bar
+
+- Keep existing release bar checks from v0.1.0.
+- Keep release-note coverage for review-packet/impact semantics changes in `docs/handoffs`.
+- Preserve deterministic outputs and protocol checks before any schema-facing release.
+
 ## Version 0.1.0
 
 Release Date: 2026-04-16

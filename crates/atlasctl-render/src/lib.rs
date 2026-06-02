@@ -207,6 +207,41 @@ fn render_review_packet(response: &ImpactResponse) -> String {
         "This packet summarizes what changed, what surface is impacted, and what proof evidence is missing.\n\n",
     );
 
+    let unique_owners = response
+        .changed_paths
+        .iter()
+        .flat_map(|path| path.owners.iter())
+        .chain(response.impacted.iter().flat_map(|hit| hit.owners.iter()))
+        .collect::<BTreeSet<_>>()
+        .len();
+
+    let changed = response.changed_paths.len();
+    let uncovered = response.uncovered.len();
+    let impacted = response.impacted.len();
+    let scope_warning_count = response.scope_warnings.len();
+    let missing_evidence = response.missing_evidence.len();
+    let implied_coverage = if changed > 0 {
+        (100.0_f64 - ((uncovered as f64 / changed as f64) * 100.0)).round()
+    } else {
+        100.0
+    };
+
+    out.push_str("## 📈 Impact Summary\n\n");
+    out.push_str(&format!("- Changed paths: `{}`\n", changed));
+    out.push_str(&format!("- Uncovered paths: `{}`\n", uncovered));
+    out.push_str(&format!("- Impacted nodes: `{}`\n", impacted));
+    out.push_str(&format!("- Owners linked: `{}`\n", unique_owners));
+    out.push_str(&format!("- Missing evidence: `{}`\n", missing_evidence));
+    out.push_str(&format!("- Scope warnings: `{}`\n", scope_warning_count));
+    if changed > 0 {
+        out.push_str(&format!(
+            "- Estimated coverage: `{:.0}%`\n\n",
+            implied_coverage
+        ));
+    } else {
+        out.push_str("- Estimated coverage: `n/a`\n\n");
+    }
+
     out.push_str("## 📂 Changed Paths\n\n");
     if response.changed_paths.is_empty() {
         out.push_str("_No paths provided._\n\n");

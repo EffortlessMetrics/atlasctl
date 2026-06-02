@@ -6,6 +6,16 @@ expression: packet
 
 This packet summarizes what changed, what surface is impacted, and what proof evidence is missing.
 
+## 📈 Impact Summary
+
+- Changed paths: `1`
+- Uncovered paths: `0`
+- Impacted nodes: `5`
+- Owners linked: `0`
+- Missing evidence: `0`
+- Scope warnings: `0`
+- Estimated coverage: `100%`
+
 ## 📂 Changed Paths
 
 - `crates/engine/src/lib.rs`
