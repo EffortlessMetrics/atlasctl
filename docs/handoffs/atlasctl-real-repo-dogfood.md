@@ -70,9 +70,9 @@ Additional external sample from `H:\Code\Rust\shiplog`:
 
 - `rtk cargo run -p atlasctl-cli -- doctor --repo-root H:\Code\Rust\shiplog --profile ci`
 - `rtk cargo run -p atlasctl-cli -- check --repo-root H:\Code\Rust\shiplog --profile ci`
-- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e0f5c7c --head 7111ada --format review-packet`
-- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e0f5c7c --head 7111ada --format json`
-- `rtk cargo run -p atlasctl-cli -- why --repo-root H:\Code\Rust\shiplog --path xtask/src/tasks/check_support_tiers.rs`
+- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e303d69 --head dc7d351 --format review-packet`
+- `rtk cargo run -p atlasctl-cli -- impacted --repo-root H:\Code\Rust\shiplog --base e303d69 --head dc7d351 --format json`
+- `rtk cargo run -p atlasctl-cli -- why --repo-root H:\Code\Rust\shiplog --path xtask/src/cli.rs`
 
 Observed behavior (PR follow-up):
 
