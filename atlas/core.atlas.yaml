@@ -28,6 +28,9 @@ nodes:
     kind: spec
     title: Proof-topology stack spec
     summary: Deterministic source-of-truth compiler behavior and deterministic impact review surfaces.
+    owns:
+      - schemas/*.json
+      - docs/artifact-protocol.md
     touches:
       - schemas/*.json
       - docs/artifact-protocol.md
@@ -78,8 +81,10 @@ nodes:
     summary: The build command compiles the repo into atlas.json and atlas.md.
     owns:
       - crates/atlasctl-render/src/lib.rs
-    touches:
       - crates/atlasctl-cli/src/main.rs
+      - crates/atlasctl-cli/tests/cli_integration.rs
+    touches:
+      - crates/atlasctl-core/src/lib.rs
 
   - id: scen:check-fails-on-broken-links
     kind: scenario
@@ -94,7 +99,6 @@ nodes:
     summary: Query and trace expose the atlas as a navigation layer.
     touches:
       - crates/atlasctl-core/src/lib.rs
-      - crates/atlasctl-cli/src/main.rs
 
   - id: scen:automated-scaffolding-reduces-friction
     kind: scenario
@@ -107,6 +111,14 @@ nodes:
     kind: scenario
     title: Full release verification
     summary: The ci-full task ensures all repo standards are met before release.
+    owns:
+      - AGENTS.md
+      - RELEASE.md
+      - atlas/core.atlas.yaml
+      - crates/atlasctl-app/src/lib.rs
+      - crates/atlasctl-discover-fs/src/lib.rs
+      - crates/atlasctl-types/src/lib.rs
+      - crates/atlasctl-core/src/snapshots/atlasctl_core__golden__golden__impact-packet.md.snap
     touches:
       - atlas/core.atlas.yaml
       - atlas/*.yaml

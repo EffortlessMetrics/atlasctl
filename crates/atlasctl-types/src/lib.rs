@@ -897,6 +897,8 @@ pub enum WhySubject {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WhyRequest {
     pub subject: WhySubject,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_recursive_touch: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1095,5 +1097,17 @@ mod tests {
         let ci = config.profile_settings(ValidationProfile::Ci);
         assert!(ci.require_artifact_producer);
         assert!(!ci.warnings_as_errors);
+    }
+
+    #[test]
+    fn why_subject_path_is_backward_compatible_from_legacy_json() {
+        let request: WhyRequest =
+            serde_json::from_str(r#"{"subject":{"Path":"crates/engine/src/lib.rs"}}"#)
+                .expect("legacy why request should deserialize");
+        assert_eq!(
+            request.subject,
+            WhySubject::Path("crates/engine/src/lib.rs".into())
+        );
+        assert!(!request.allow_recursive_touch);
     }
 }
