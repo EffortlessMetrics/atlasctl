@@ -37,15 +37,40 @@ nodes:
     title: Ship source-of-truth stack lane
     summary: Establish review-oriented proof topology behavior as the repo's default workflow contract.
 
+  - id: goal:advance-review-packet-router
+    kind: goal
+    title: Advance review-packet router readiness
+    summary: Improve external adoption and PR-surface clarity for post closeout v0.1 work.
+
   - id: plan:closeout-proof-topology-v0-1
     kind: plan
     title: v0.1 proof-topology closeout
     summary: Finish the source-of-truth stack lane with closeout-ready governance and operational documentation.
 
+  - id: plan:post-closeout-router-readiness-v0-2
+    kind: plan
+    title: v0.2 review-packet router readiness
+    summary: Consolidate post-closeout follow-up around review-surface, scope diagnostics, and operational continuity.
+
   - id: closeout:v0-1-proof-topology
     kind: closeout
     title: v0.1 proof-topology closeout
     summary: Capture final governance, evidence, and next-goal handoff for the lane.
+
+  - id: scen:post-closeout-review-surface-hardening
+    kind: scenario
+    title: Post-closeout review-surface hardening
+    summary: Collect and act on residual scope/proof-surface mismatches through review-packet and dogfood follow-up work.
+    owns:
+      - docs/handoffs/*.md
+      - .codex/**/*.toml
+    touches:
+      - docs/**/*.md
+      - .codex/**/*.toml
+      - docs/status/**/*.md
+      - policy/**/*.toml
+      - schemas/*.json
+      - RELEASE.md
 
   - id: scen:build-emits-canonical-atlas
     kind: scenario
@@ -198,6 +223,10 @@ edges:
     kind: defines
     to: plan:closeout-proof-topology-v0-1
 
+  - from: goal:advance-review-packet-router
+    kind: defines
+    to: plan:post-closeout-router-readiness-v0-2
+
   - from: spec:proof-topology-stack
     kind: requires
     to: plan:closeout-proof-topology-v0-1
@@ -205,6 +234,22 @@ edges:
   - from: plan:closeout-proof-topology-v0-1
     kind: closes
     to: goal:ship-proof-topology-stack
+
+  - from: scen:post-closeout-review-surface-hardening
+    kind: proves
+    to: req:queryable-proof-topology
+
+  - from: scen:post-closeout-review-surface-hardening
+    kind: runs_with
+    to: cmd:ci-full
+
+  - from: scen:post-closeout-review-surface-hardening
+    kind: exercises
+    to: crate:atlasctl-cli
+
+  - from: scen:post-closeout-review-surface-hardening
+    kind: runs_with
+    to: cmd:docs-check
 
   - from: scen:full-release-verification
     kind: proves
