@@ -69,6 +69,7 @@ pub enum DiagnosticCode {
     ActiveGoalWorkItemMissingProof,
     ClaimMissingProofCommand,
     PolicyLedgerMissingProofCommand,
+    PolicyFileLegacyNoAtlas,
 }
 
 impl DiagnosticCode {
@@ -102,6 +103,7 @@ impl DiagnosticCode {
             Self::ActiveGoalWorkItemMissingProof => "active_goal_work_item_missing_proof",
             Self::ClaimMissingProofCommand => "claim_missing_proof_command",
             Self::PolicyLedgerMissingProofCommand => "policy_ledger_missing_proof_command",
+            Self::PolicyFileLegacyNoAtlas => "policy_file_legacy_no_atlas",
         }
     }
 
@@ -135,6 +137,7 @@ impl DiagnosticCode {
             Self::ActiveGoalWorkItemMissingProof => "active goal work item has no proof command",
             Self::ClaimMissingProofCommand => "claim is missing a proof command",
             Self::PolicyLedgerMissingProofCommand => "policy_ledger is missing a proof command",
+            Self::PolicyFileLegacyNoAtlas => "policy file has no atlas metadata and was skipped",
         }
     }
 
@@ -152,6 +155,7 @@ impl DiagnosticCode {
             Self::ActiveGoalWorkItemMissingProof => Severity::Warning,
             Self::ClaimMissingProofCommand => Severity::Warning,
             Self::PolicyLedgerMissingProofCommand => Severity::Warning,
+            Self::PolicyFileLegacyNoAtlas => Severity::Warning,
             _ => Severity::Error,
         }
     }

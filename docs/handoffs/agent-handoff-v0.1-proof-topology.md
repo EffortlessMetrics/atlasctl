@@ -5,6 +5,7 @@
 - Foundation implementation for v0.1 proof topology is merged.
 - Open implementation PRs are intentionally not in this repo lane (only docs/tooling overlap PRs remain separate).
 - Current operational focus is closeout -> dogfood -> polish follow-up PRs.
+- This lane has been archived into `.codex/goals/archive/ship-proof-topology-stack-v0-1.toml`.
 
 ## What to run when continuing this lane
 
@@ -35,3 +36,12 @@ rtk cargo run -p atlasctl-cli -- why --repo-root . --path crates/atlasctl-core/s
 - Keep PR scope to one obligation and avoid broadening a review-ready PR.
 - Preserve existing proof/router behavior; do not add CI routing logic here.
 - Next natural lane PR after closeout handoff is `docs/` + `schema/golden` protocol compatibility cleanup if required by future evidence gaps.
+- New active-goal manifest handoff expectations:
+  - Keep `.codex/goals/active.toml` as the current operational surface.
+  - Add a new archived manifest for each completed lane in `.codex/goals/archive/`.
+  - Record next planned surface (claims, policy, scope, review packet, protocol) in PR title/body before opening.
+- Keep workspace hygiene between PRs:
+  - close stale local branches/worktrees before handoff,
+  - remove scratch/golden-generation artifacts,
+  - run `git diff --name-status main...HEAD` before each PR,
+  - keep `git status` clean at handoff points.

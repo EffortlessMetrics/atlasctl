@@ -530,8 +530,11 @@ fn parse_policy_file(repo_root: &Utf8Path, rel_path: &Utf8Path) -> DiscoveryBatc
 
     let Some(raw) = envelope.atlas else {
         batch.diagnostics.push(AtlasDiagnostic::new(
-            DiagnosticCode::MalformedFragment,
-            format!("policy file `{}` is missing `atlas` section", rel_path),
+            DiagnosticCode::PolicyFileLegacyNoAtlas,
+            format!(
+                "policy file `{}` does not define an `atlas` section and was skipped",
+                rel_path
+            ),
             None,
             Some(location(rel_path)),
         ));
@@ -1539,6 +1542,54 @@ proves = ["cmd:policy-audit"]
         assert!(
             batch.edges[0].kind == EdgeKind::Proves
                 && batch.edges[0].to.as_str() == "cmd:policy-audit"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn parses_legacy_policy_toml_file_as_warning() {
+        let mut root = std::env::temp_dir();
+        root.push(format!(
+            "atlasctl-discover-fs-policy-legacy-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("policy")).unwrap();
+
+        let policy = r#"
+enabled = true
+message = "legacy policy file with no atlas metadata"
+"#;
+
+        let policy_path = root.join("policy/legacy-legacy-policy.toml");
+        std::fs::write(&policy_path, policy).unwrap();
+
+        let repo_root = Utf8PathBuf::from_path_buf(root.clone()).unwrap();
+        let batch = parse_policy_file(
+            &repo_root,
+            Utf8Path::new("policy/legacy-legacy-policy.toml"),
+        );
+
+        assert_eq!(
+            batch.nodes.len(),
+            0,
+            "legacy policy files should not emit nodes"
+        );
+        assert_eq!(
+            batch.edges.len(),
+            0,
+            "legacy policy files should not emit edges"
+        );
+        assert_eq!(
+            batch.diagnostics.len(),
+            1,
+            "expected warning diagnostic for missing atlas section"
+        );
+        assert_eq!(
+            batch.diagnostics[0].code,
+            DiagnosticCode::PolicyFileLegacyNoAtlas,
+            "expected legacy policy warning code"
         );
 
         let _ = std::fs::remove_dir_all(root);
