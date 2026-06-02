@@ -45,3 +45,23 @@ cargo run -p xtask -- ci-full
 cargo run -p xtask -- smoke
 cargo run -p xtask -- docs-check
 ```
+
+## Lane operating rules
+
+- Before each lane PR:
+  - run `git diff --name-status main...HEAD` and confirm the file set matches the PR title/body.
+  - update the PR body with exact validation commands and their outcomes.
+  - keep one proof obligation per PR.
+- Preferred work order after foundation merge:
+  1. closeout / release receipt
+  2. dogfood scorecard
+  3. metadata coverage expansion
+  4. review-packet polish
+  5. scope diagnostics refinement
+  6. scaffold-from-gap hardening
+  7. protocol compatibility pass
+  8. agent handoff ergonomics
+- Cleanup after PRs:
+  - remove scratch/generated files created for experiments
+  - clear stale cargo artifacts when they interfere with commands
+  - leave `git status` clean
