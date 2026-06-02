@@ -33,6 +33,7 @@ Then derive:
 | PR #21 foundation | `83d1049..12ea4da` | 39 | 39 | 0 | 0.0% | 31 | 0 | 1 |
 | PR #23 policy+discovery | `8e64863..c933cbe` | 4 | 4 | 0 | 0.0% | 26 | 0 | 0 |
 | PR #24 dogfood-surface | `c933cbe..7f0561c` | 1 | 1 | 0 | 0.0% | 10 | 0 | 0 |
+| PR #34 why-path robustness | `1db2dc0..b5cde7e` | 2 | 2 | 0 | 0.0% | 22 | 0 | 0 |
 | Local follow-up (`main`) | `9ba6430..5d44572` | 6 | 6 | 0 | 0.0% | 14 | 0 | 1 |
 | External sample: shiplog PR #150 | `e0f5c7c..7111ada` | 9 | 0 | 9 | 100% | 0 | 0 | 3 |
 | External sample: shiplog follow-up | `e303d69..dc7d351` | 8 | 0 | 8 | 100% | 0 | 0 | 3 |
