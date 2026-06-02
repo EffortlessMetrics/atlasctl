@@ -16,6 +16,11 @@ This packet summarizes what changed, what surface is impacted, and what proof ev
 - Scope warnings: `0`
 - Estimated coverage: `100%`
 
+## 🎯 Why this matters
+
+- Behavioral requirements: `req:example`
+- Behavioral scenarios: `scen:example-build`
+
 ## 📂 Changed Paths
 
 - `crates/engine/src/lib.rs`
@@ -23,6 +28,10 @@ This packet summarizes what changed, what surface is impacted, and what proof ev
 ## 👤 Owners
 
 _No owners linked to current impact._
+
+## 👥 Ownership by Path
+
+- `crates/engine/src/lib.rs`: _No owners linked to this path_
 
 ## 🧭 Impacted Truth Surface
 
@@ -55,7 +64,7 @@ _None_
 
 ## 🧪 Proof Commands to Run
 
-- `cmd:ci-fast` — Fast CI
+- `cmd:ci-fast` — Fast CI (related to `scen:example-build` via `runs_with`)
 
 ## ⚠️ Missing Evidence
 

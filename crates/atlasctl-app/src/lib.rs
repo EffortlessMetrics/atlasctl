@@ -152,7 +152,12 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
     }
 
     pub fn impacted(&self, options: &ImpactOptions) -> Result<ImpactOutcome, AppError> {
-        let graph = self.compile(&options.compile)?;
+        let discovered = self.discovery.discover(&DiscoverRequest {
+            repo_root: options.compile.repo_root.clone(),
+            config_path: options.compile.config_path.clone(),
+        })?;
+        let active_goal = discovered.config.active_goal.clone();
+        let graph = compile_atlas(discovered, options.compile.profile);
         let mut paths = match &options.request {
             ImpactSource::Paths(paths) => paths.clone(),
             ImpactSource::Diff { base, head } => {
@@ -181,7 +186,8 @@ impl<D: DiscoveryPort, R: RenderPort, G: DiffPort, O: OwnersPort> AtlasService<D
             }
         }
 
-        let response = impacted_graph(&graph, &ImpactRequest { paths, owners });
+        let mut response = impacted_graph(&graph, &ImpactRequest { paths, owners });
+        response.active_goal = active_goal;
         let (has_uncovered_warning, has_uncovered_error) =
             coverage_severity(options.compile.profile, !response.uncovered.is_empty());
 

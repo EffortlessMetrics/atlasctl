@@ -886,6 +886,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
 
     ImpactResponse {
         impacted: impacted_list,
+        active_goal: None,
         uncovered,
         changed_paths,
         missing_evidence,
@@ -4110,6 +4111,44 @@ mod golden {
             Some("crates/engine/src/lib.rs")
         );
         assert_eq!(first.get("owners"), Some(&json!(["@ownerscope"])));
+    }
+
+    #[test]
+    fn impact_packet_includes_active_goal_context() {
+        let renderer = AtlasRenderer;
+        let graph = build_atlas("valid-minimal");
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "crates/engine/src/lib.rs".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let mut response = impacted_graph(&graph, &request);
+        response.active_goal = Some(ActiveGoalConfig {
+            goal: Some("goal:advance-review-packet-router".to_string()),
+            plan: Some("plan:post-closeout-router-readiness-v0-2".to_string()),
+            proposal: Some("proposal:proof-topology-stack".to_string()),
+            spec: Some("spec:proof-topology-stack".to_string()),
+            ready_work_items: vec!["scen:example-build".to_string()],
+        });
+
+        let packet = renderer
+            .render_impact(&response, RenderFormat::ReviewPacket)
+            .unwrap();
+
+        assert!(packet.contains("## 🎯 Active Goal Context"));
+        assert!(
+            packet.contains("- Goal: `goal:advance-review-packet-router` (not currently impacted)")
+        );
+        assert!(packet.contains(
+            "- Plan: `plan:post-closeout-router-readiness-v0-2` (not currently impacted)"
+        ));
+        assert!(
+            packet.contains("- Proposal: `proposal:proof-topology-stack` (not currently impacted)")
+        );
+        assert!(packet.contains("- Spec: `spec:proof-topology-stack` (not currently impacted)"));
+        assert!(packet.contains("- `scen:example-build`"));
     }
 
     #[test]
