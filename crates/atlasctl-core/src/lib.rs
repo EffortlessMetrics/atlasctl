@@ -925,11 +925,17 @@ fn compute_scope_warnings(
         }
     }
 
+    let has_documentation_path = request
+        .paths
+        .iter()
+        .any(|changed| is_documentation_path(changed.path.as_str()));
+    let has_implementation_path = request.paths.iter().any(|changed| {
+        is_implementation_path(changed.path.as_str()) && !is_generated_path(changed.path.as_str())
+    });
     let docs_only = !request.paths.is_empty()
-        && request
-            .paths
-            .iter()
-            .all(|changed| is_documentation_path(changed.path.as_str()));
+        && request.paths.iter().all(|changed| {
+            is_documentation_path(changed.path.as_str()) || is_generated_path(changed.path.as_str())
+        });
 
     if docs_only && impacted_has_non_document_surface {
         warnings.push(
@@ -937,15 +943,7 @@ fn compute_scope_warnings(
                 .to_string(),
         );
     }
-    if request
-        .paths
-        .iter()
-        .any(|changed| is_implementation_path(changed.path.as_str()))
-        && request
-            .paths
-            .iter()
-            .any(|changed| is_documentation_path(changed.path.as_str()))
-    {
+    if has_implementation_path && has_documentation_path {
         warnings.push(
             "path set mixes documentation and implementation files; avoid one-off scope mismatches"
                 .to_string(),
@@ -2673,6 +2671,57 @@ mod tests {
     }
 
     #[test]
+    fn scope_warning_for_docs_with_generated_does_not_mix_implementation_scope() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![node_with_touches(
+                    "scen:example-build",
+                    NodeKind::Scenario,
+                    &["docs/implementation-plan.md"],
+                )],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: "docs/implementation-plan.md".into(),
+                    owners: vec![],
+                },
+                ChangedPath {
+                    path: "target/atlas.json".into(),
+                    owners: vec![],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            !response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning
+                    .contains("path set mixes documentation and implementation files")),
+            "generated artifacts should not trigger implementation mixing"
+        );
+        assert!(
+            response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning.contains("generated artifact changed")),
+            "generated artifact change should still warn without artifact node"
+        );
+    }
+
+    #[test]
     fn impacted_analysis_orders_and_dedups_paths_stably() {
         let graph = compile_atlas(
             DiscoveredRepo {
@@ -3906,6 +3955,9 @@ mod golden {
         assert!(!is_implementation_path("docs/architecture.md"));
         assert!(!is_implementation_path("policy/release/review.toml"));
         assert!(is_implementation_path("atlas/core.atlas.yaml"));
+        assert!(is_generated_path("target/atlas.json"));
+        assert!(is_generated_path("target/debug/atlasctl-cli"));
+        assert!(!is_generated_path("docs/architecture.md"));
     }
 
     #[test]
