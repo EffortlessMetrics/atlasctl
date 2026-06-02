@@ -7,6 +7,7 @@
 The source-of-truth stack proof-topology closeout follow-up includes:
 
 - Review-packet UX hardening for changed-path, owner, and scope summary reporting.
+- Machine-readable `review-packet` output (`--format json`) with `impact` envelope payload and `command: review-packet`.
 - Path normalization/compatibility fixes for `why` and `impacted` path inputs.
 - Dogfood sample evidence added for local follow-up change window.
 - Additional scope diagnostics for doc/generation boundary handling.

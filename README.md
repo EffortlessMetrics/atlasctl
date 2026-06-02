@@ -51,7 +51,10 @@ atlasctl impacted --format gh-summary
 atlasctl review-packet --base main --head HEAD
 
 # Or for explicit path-focused review packets
-atlasctl review-packet --paths crates/engine src/main.rs
+atlasctl review-packet --paths crates/engine/src/main.rs
+
+# Machine-readable review packet for proof-aware tooling
+atlasctl review-packet --base main --head HEAD --format json
 ```
 
 ### 3. Semantic Navigation with `why`
