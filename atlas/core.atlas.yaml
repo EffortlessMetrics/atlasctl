@@ -78,6 +78,8 @@ nodes:
       - .codex/**/*.toml
     touches:
       - .codex/**/*.toml
+      - crates/atlasctl-cli/tests/cli_integration.rs
+      - crates/atlasctl-core/src/lib.rs
       - policy/**/*.toml
       - schemas/*.json
       - RELEASE.md
