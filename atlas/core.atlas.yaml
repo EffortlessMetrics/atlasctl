@@ -121,6 +121,7 @@ nodes:
     owns:
       - AGENTS.md
       - RELEASE.md
+      - atlas/artifacts.atlas.yaml
       - atlas/core.atlas.yaml
       - crates/atlasctl-app/src/lib.rs
       - crates/atlasctl-discover-fs/src/lib.rs
