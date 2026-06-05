@@ -11,10 +11,10 @@ use atlasctl_types::{
     AtlasId, ChangedPath, ExitCode, ImpactEnvelope, NodeKind, QueryRequest, RenderFormat,
     RepoRelativePath, TraceDirection, TraceRequest, ValidationProfile, WhyRequest, WhySubject,
 };
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::process::exit;
-use std::{fs, str::FromStr};
+use std::{env, fs, str::FromStr};
 
 #[derive(Debug, Parser)]
 #[command(name = "atlasctl")]
@@ -548,7 +548,8 @@ edges:
             })
         }
         Command::Impacted(args) => {
-            let source = impact_source(args.paths, &args.common.repo_root, args.base, args.head);
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let source = impact_source(args.paths, &repo_root, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -596,7 +597,8 @@ edges:
             }
         }
         Command::ReviewPacket(args) => {
-            let source = impact_source(args.paths, &args.common.repo_root, args.base, args.head);
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let source = impact_source(args.paths, &repo_root, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -643,9 +645,10 @@ edges:
             }
         }
         Command::Why(args) => {
-            let path_subject = normalize_path_input_for_repo(&args.common.repo_root, &args.subject);
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let path_subject = normalize_path_input_for_repo(&repo_root, &args.subject);
             let (subject, allow_recursive_touch, has_existing_path) = if args.path {
-                let path = args.common.repo_root.join(path_subject.as_str());
+                let path = repo_root.join(path_subject.as_str());
                 (
                     WhySubject::Path(RepoRelativePath::new(path_subject.clone())),
                     path.exists() || path_has_glob_chars(&path_subject),
@@ -852,10 +855,21 @@ edges:
 
 fn compile_options(common: &CommonArgs) -> CompileOptions {
     CompileOptions {
-        repo_root: common.repo_root.clone(),
+        repo_root: resolve_repo_root(&common.repo_root),
         config_path: common.config.clone(),
         profile: common.profile.into(),
     }
+}
+
+fn resolve_repo_root(repo_root: &Utf8PathBuf) -> Utf8PathBuf {
+    if repo_root.is_absolute() {
+        return repo_root.clone();
+    }
+
+    env::current_dir()
+        .ok()
+        .and_then(|cwd| Utf8Path::from_path(&cwd).map(|cwd_path| cwd_path.join(repo_root)))
+        .unwrap_or_else(|| repo_root.clone())
 }
 
 fn impact_source(
@@ -1292,7 +1306,7 @@ fn normalize_path_input(value: &str) -> String {
 
 fn normalize_path_input_for_repo(repo_root: &Utf8PathBuf, value: &str) -> String {
     let normalized_root = normalize_path_outside_repo(
-        normalize_path_input(repo_root.as_str())
+        normalize_path_input(resolve_repo_root(repo_root).as_str())
             .trim_end_matches('/')
             .to_string()
             .as_str(),

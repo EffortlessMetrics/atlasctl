@@ -737,6 +737,32 @@ fn test_why_by_absolute_path_is_normalized() {
 }
 
 #[test]
+fn test_why_by_absolute_path_with_relative_repo_root_is_normalized() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args(["why", "--repo-root", ".", "--path", &absolute_path])
+        .output()
+        .expect("why command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Node: scen:example-build"));
+    assert!(stdout.contains("crates/engine/src/lib.rs"));
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
+}
+
+#[test]
 fn test_why_by_backslash_path_still_finds_node() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -808,6 +834,126 @@ fn test_why_by_missing_absolute_path_reports_no_match() {
     );
     assert!(!stdout.contains(&absolute_path));
     assert!(!stdout.contains(&repo_root));
+}
+
+#[test]
+fn test_why_markdown_by_missing_absolute_path_with_relative_repo_root_reports_no_match() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/atlasctl-core/src/lib.r")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "why",
+            "--repo-root",
+            ".",
+            "--path",
+            &absolute_path,
+            "--format",
+            "markdown",
+        ])
+        .output()
+        .expect("why command should execute");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error: No matching node found"));
+    assert!(!stderr.contains(&absolute_path));
+    assert!(!stderr.contains(&repo_root));
+    assert!(!stderr.contains("\\"));
+}
+
+#[test]
+fn test_impacted_by_absolute_path_with_relative_repo_root_is_normalized() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "impacted",
+            "--repo-root",
+            ".",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("impacted command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("impacted json should parse");
+    assert_eq!(payload.command, "impacted");
+    assert_eq!(payload.schema_version, 1);
+
+    let changed = payload
+        .payload
+        .changed_paths
+        .into_iter()
+        .map(|path| path.path.as_str().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(changed, vec!["crates/engine/src/lib.rs".to_string()]);
+}
+
+#[test]
+fn test_impacted_by_absolute_path_with_parent_relative_repo_root_is_normalized() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "impacted",
+            "--repo-root",
+            "..",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("impacted command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("impacted json should parse");
+    assert_eq!(payload.command, "impacted");
+    assert_eq!(payload.schema_version, 1);
+
+    let changed = payload
+        .payload
+        .changed_paths
+        .into_iter()
+        .map(|path| path.path.as_str().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(changed, vec!["crates/engine/src/lib.rs".to_string()]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains(&absolute_path));
 }
 
 #[test]
@@ -1070,6 +1216,91 @@ fn test_why_json_paths_normalized_for_absolute_path() {
             "why chain node provenance source",
         );
     }
+}
+
+#[test]
+fn test_why_json_paths_are_normalized_for_absolute_path_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().to_string();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "why",
+            "--repo-root",
+            ".",
+            "--path",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("why command should execute");
+
+    assert!(output.status.success());
+    let payload: WhyEnvelope =
+        serde_json::from_slice(&output.stdout).expect("why json should parse");
+    assert_eq!(payload.command, "why");
+    assert_eq!(payload.schema_version, 1);
+
+    let response = payload.payload;
+    assert_repo_relative_source(
+        response.root.provenance.source.as_str(),
+        "why root provenance source",
+    );
+
+    for step in response.chain {
+        assert_repo_relative_source(
+            step.node.provenance.source.as_str(),
+            "why chain node provenance source",
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
+    assert!(!stdout.contains("\\"));
+}
+
+#[test]
+fn test_why_missing_absolute_path_json_fails_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/atlasctl-core/src/lib.r")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().to_string();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "why",
+            "--repo-root",
+            ".",
+            "--path",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("why command should execute");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error: No matching node found"));
+    assert!(!stderr.contains(&absolute_path));
+    assert!(!stderr.contains(&repo_root));
+    assert!(!stderr.contains("\\"));
 }
 
 #[test]
@@ -1645,6 +1876,52 @@ fn test_impacted_by_missing_absolute_path_is_not_absolute() {
 }
 
 #[test]
+fn test_impacted_by_missing_absolute_path_is_not_absolute_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("not/a/real/path.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "impacted",
+            "--repo-root",
+            ".",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("impacted command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("impacted json should parse");
+    assert_eq!(payload.command, "impacted");
+
+    for changed_path in &payload.payload.changed_paths {
+        assert_repo_relative_path(changed_path.path.as_str(), "impact missing changed path");
+        assert_eq!(changed_path.path.as_str(), "not/a/real/path.rs");
+    }
+
+    for uncovered in &payload.payload.uncovered {
+        assert_repo_relative_path(uncovered.path.as_str(), "impact missing uncovered path");
+        assert_eq!(uncovered.path.as_str(), "not/a/real/path.rs");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
+}
+
+#[test]
 fn test_impacted_markdown_by_missing_absolute_path_is_not_absolute() {
     let temp_dir = setup_temp_fixture("valid-minimal");
     let absolute_path = temp_dir
@@ -1670,6 +1947,39 @@ fn test_impacted_markdown_by_missing_absolute_path_is_not_absolute() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("not/a/real/path.rs"));
     assert!(!stdout.contains(&absolute_path));
+}
+
+#[test]
+fn test_impacted_markdown_by_missing_absolute_path_is_not_absolute_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("not/a/real/path.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "impacted",
+            "--repo-root",
+            ".",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "markdown",
+        ])
+        .output()
+        .expect("impacted command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("not/a/real/path.rs"));
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
 }
 
 #[test]
@@ -1960,6 +2270,41 @@ fn test_review_packet_path_normalization_for_absolute_paths() {
 }
 
 #[test]
+fn test_review_packet_path_normalization_for_absolute_paths_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "review-packet",
+            "--repo-root",
+            ".",
+            "--format",
+            "markdown",
+            "--paths",
+            &absolute_path,
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Schema version: `1`"));
+    assert!(stdout.contains("`crates/engine/src/lib.rs`"));
+    assert!(!stdout.contains("`crates\\engine\\src\\lib.rs`"));
+    assert!(!stdout.contains(&format!("`{absolute_path}`")));
+    assert!(!stdout.contains(&repo_root));
+}
+
+#[test]
 fn test_review_packet_json_paths_are_repo_relative_for_absolute_path() {
     let temp_dir = setup_temp_fixture("valid-minimal");
     let absolute_path = temp_dir
@@ -1997,6 +2342,48 @@ fn test_review_packet_json_paths_are_repo_relative_for_absolute_path() {
         assert_repo_relative_path(path.path.as_str(), "impact uncovered path");
     }
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
+}
+
+#[test]
+fn test_review_packet_json_paths_are_repo_relative_for_absolute_path_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "review-packet",
+            "--repo-root",
+            ".",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("review-packet json should parse");
+    assert_eq!(payload.command, "review-packet");
+    assert_eq!(payload.schema_version, 1);
+
+    for path in &payload.payload.changed_paths {
+        assert_repo_relative_path(path.path.as_str(), "impact changed path");
+    }
+
+    assert!(!output.stdout.iter().any(|b| b == &b'\\'));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains(&absolute_path));
     assert!(!stdout.contains(&repo_root));
@@ -2044,6 +2431,54 @@ fn test_review_packet_json_paths_for_missing_absolute_path_are_repo_relative() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains(&absolute_path));
+}
+
+#[test]
+fn test_review_packet_json_paths_for_missing_absolute_path_are_repo_relative_with_relative_repo_root()
+ {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("not/a/real/path.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "review-packet",
+            "--repo-root",
+            ".",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("review-packet json should parse");
+    assert_eq!(payload.command, "review-packet");
+    assert_eq!(payload.schema_version, 1);
+
+    for path in &payload.payload.changed_paths {
+        assert_repo_relative_path(path.path.as_str(), "impact changed path");
+        assert_eq!(path.path.as_str(), "not/a/real/path.rs");
+    }
+
+    for path in &payload.payload.uncovered {
+        assert_repo_relative_path(path.path.as_str(), "impact uncovered path");
+        assert_eq!(path.path.as_str(), "not/a/real/path.rs");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
 }
 
 #[test]
@@ -2138,6 +2573,39 @@ fn test_review_packet_markdown_missing_absolute_path_is_repo_relative() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("not/a/real/path.rs"));
     assert!(!stdout.contains(&absolute_path));
+}
+
+#[test]
+fn test_review_packet_markdown_missing_absolute_path_is_repo_relative_with_relative_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let absolute_path = temp_dir
+        .path()
+        .join("not/a/real/path.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let repo_root = temp_dir.path().to_string_lossy().replace('\\', "/");
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .args([
+            "review-packet",
+            "--repo-root",
+            ".",
+            "--paths",
+            &absolute_path,
+            "--format",
+            "markdown",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("not/a/real/path.rs"));
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains(&repo_root));
 }
 
 #[test]
