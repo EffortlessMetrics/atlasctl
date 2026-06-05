@@ -16,15 +16,23 @@ rtk cargo run -p atlasctl-cli -- doctor --repo-root . --profile ci
 rtk cargo run -p atlasctl-cli -- impacted --repo-root . --base <base> --head <head> --format review-packet
 rtk cargo run -p atlasctl-cli -- impacted --repo-root . --base <base> --head <head> --format json
 rtk cargo run -p atlasctl-cli -- why --repo-root . --path crates/atlasctl-core/src/lib.rs
+rtk cargo run -p xtask -- scorecard --sample "PR #NN label" --base <base> --head <head>
+rtk cargo run -p xtask -- scorecard --sample "PR #NN label" --base <base> --head <head> --header --out target/atlasctl-scorecard-row.md
 ```
 
-Then derive:
+The `xtask scorecard` command parses the stable `impacted --format json` payload and emits a deterministic Markdown row. It includes:
+
 - changed path count
+- covered count
 - uncovered count / uncovered rate
 - impacted node count
 - missing evidence count
 - scope warning count
-- response latency for command set (time-to-answer)
+- touched-only path count
+- multi-owner path count
+- coverage percent
+
+Response latency for the command set remains a manual measurement because it is runtime-dependent rather than a stable protocol field.
 
 ## Sample Set (historical real PR ranges)
 
@@ -144,5 +152,5 @@ Command runs remained stable and produced consistent output for this repo as evi
 ## Suggested follow-up
 
 - Keep PR scope discipline from this sample; mixed docs/implementation PRs can trigger actionable scope warnings and weaken review clarity.
-- Expand scorecard tooling in a follow-up PR to emit and persist these additional metrics automatically.
+- Use `xtask scorecard` for future scorecard rows so the additional metrics come from the impact protocol instead of manual table math.
 - For external-adoption support, add a clear onboarding path in docs for defining minimal coverage metadata so repos receive non-empty proof surfaces instead of structural-only output.
