@@ -10,6 +10,7 @@ This document defines the formal artifact protocol for `atlasctl`, ensuring stab
 2.  **Impact Analysis (`impact.json`)**: review-time mapping of diffs to behaviors.
     - Contains a protocol envelope with `schema_version`, `command`, and `payload`.
     - The `command` field reflects the invoking command (`impacted` or `review-packet`), while the payload schema is shared by both.
+    - `payload.metrics` contains additive scorecard counters for changed paths, uncovered paths, impacted nodes, linked owners, missing evidence, scope warnings, touches-only paths, multi-owner paths, and estimated coverage percent.
 3.  **Proof Chain (`why.json`)**: Curated semantic projection for a specific node or path.
     - Contains a protocol envelope with `schema_version`, `command`, and `payload`.
 4.  **Diagnostics (`doctor.json`)**: maintenance and drift reports.

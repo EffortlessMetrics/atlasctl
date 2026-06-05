@@ -220,6 +220,65 @@
         }
       }
     },
+    "ImpactMetrics": {
+      "type": "object",
+      "properties": {
+        "changed_path_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "coverage_percent": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "impacted_node_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "missing_evidence_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "multi_owner_path_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "owner_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "scope_warning_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "touched_only_path_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "uncovered_path_count": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
     "ImpactResponse": {
       "type": "object",
       "required": [
@@ -249,6 +308,24 @@
           "items": {
             "$ref": "#/definitions/ImpactHit"
           }
+        },
+        "metrics": {
+          "default": {
+            "changed_path_count": 0,
+            "coverage_percent": 0,
+            "impacted_node_count": 0,
+            "missing_evidence_count": 0,
+            "multi_owner_path_count": 0,
+            "owner_count": 0,
+            "scope_warning_count": 0,
+            "touched_only_path_count": 0,
+            "uncovered_path_count": 0
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/ImpactMetrics"
+            }
+          ]
         },
         "missing_evidence": {
           "default": [],

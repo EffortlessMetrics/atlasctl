@@ -138,7 +138,7 @@ Command runs remained stable and produced consistent output for this repo as evi
 - External repositories without source-of-truth metadata can still be analyzed for discovery-only structural warnings, but no proof-trace (`why`) output is possible.
 - Legacy `policy/*.toml` repositories without Atlas metadata sections now emit non-blocking `policy_file_legacy_no_atlas` warnings and are skipped from atlas discovery, improving review-packet reach while still signaling migration work.
 - This indicates portability work for broader adoption: discoverability scales, but `proof` surfaces are empty without metadata in `atlas.toml` + metadata files.
-- **Ambiguous selector rate** and **maintainer correction rate** are still not directly emitted by current `impacted` JSON; these need either a CLI metric extension or scorecard-side script.
+- **Ambiguous selector rate** can now be derived directly from `impacted` JSON via `payload.metrics.multi_owner_path_count` and `payload.metrics.touched_only_path_count`; **maintainer correction rate** still requires external review feedback evidence.
 - Additional external-repo samples are still useful to measure portability variance across repo shapes; current data covers atlasctl (`atlasctl`/`tokmd`) and three nearby shiplog baselines.
 
 ## Suggested follow-up

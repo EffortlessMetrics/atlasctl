@@ -1,6 +1,5 @@
 ---
 source: crates/atlasctl-core/src/lib.rs
-assertion_line: 3197
 expression: json
 ---
 {
@@ -127,6 +126,17 @@ expression: json
         "owners": []
       }
     ],
+    "metrics": {
+      "changed_path_count": 1,
+      "uncovered_path_count": 0,
+      "impacted_node_count": 5,
+      "owner_count": 0,
+      "missing_evidence_count": 0,
+      "scope_warning_count": 0,
+      "touched_only_path_count": 0,
+      "multi_owner_path_count": 0,
+      "coverage_percent": 100
+    },
     "missing_evidence": [],
     "scope_warnings": [],
     "suggested_fixes": []

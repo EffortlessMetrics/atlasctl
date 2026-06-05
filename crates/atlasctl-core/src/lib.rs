@@ -3,10 +3,10 @@
 use atlasctl_types::{
     ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasEdge, AtlasGraph, AtlasId,
     AtlasMetrics, AtlasNode, ChangedPath, DiagnosticCode, DiscoveredRepo, EdgeKind, ImpactHit,
-    ImpactRequest, ImpactResponse, NodeKind, NodeMatch, NodeRole, PathSelector, ProfileSettings,
-    QueryRequest, QueryResponse, RepoRelativePath, Severity, SourceLocation, TraceDirection,
-    TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest, WhyResponse, WhyStep,
-    WhySubject,
+    ImpactMetrics, ImpactRequest, ImpactResponse, NodeKind, NodeMatch, NodeRole, PathSelector,
+    ProfileSettings, QueryRequest, QueryResponse, RepoRelativePath, Severity, SourceLocation,
+    TraceDirection, TraceEdge, TraceRequest, TraceResponse, ValidationProfile, WhyRequest,
+    WhyResponse, WhyStep, WhySubject,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -967,11 +967,41 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     }
     impacted_list.sort_by(|a, b| a.node.id.cmp(&b.node.id));
 
+    let changed_path_count = changed_paths.len();
+    let uncovered_path_count = uncovered.len();
+    let covered_path_count = changed_path_count.saturating_sub(uncovered_path_count);
+    let coverage_percent = if changed_path_count > 0 {
+        ((covered_path_count as f64 / changed_path_count as f64) * 100.0).round() as usize
+    } else {
+        100
+    };
+    let owner_count = changed_paths
+        .iter()
+        .flat_map(|path| path.owners.iter())
+        .chain(impacted_list.iter().flat_map(|hit| hit.owners.iter()))
+        .collect::<BTreeSet<_>>()
+        .len();
+    let metrics = ImpactMetrics {
+        changed_path_count,
+        uncovered_path_count,
+        impacted_node_count: impacted_list.len(),
+        owner_count,
+        missing_evidence_count: missing_evidence.len(),
+        scope_warning_count: scope_warnings.len(),
+        touched_only_path_count: touched_only_paths.len(),
+        multi_owner_path_count: changed_paths
+            .iter()
+            .filter(|path| path.owners.len() > 1)
+            .count(),
+        coverage_percent,
+    };
+
     ImpactResponse {
         impacted: impacted_list,
         active_goal: None,
         uncovered,
         changed_paths,
+        metrics,
         missing_evidence,
         scope_warnings,
         suggested_fixes,
@@ -2804,6 +2834,64 @@ mod tests {
     }
 
     #[test]
+    fn impact_metrics_are_computed_from_changed_path_coverage() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![
+                    node("scen:owned", NodeKind::Scenario),
+                    node_with_touches("scen:touch-only", NodeKind::Scenario, &["docs/readme.md"]),
+                ],
+                edges: vec![],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![
+                ChangedPath {
+                    path: "src/lib.rs".into(),
+                    owners: vec!["@alpha".to_string(), "@beta".to_string()],
+                },
+                ChangedPath {
+                    path: "docs/readme.md".into(),
+                    owners: vec![],
+                },
+                ChangedPath {
+                    path: "unknown/path.md".into(),
+                    owners: vec![],
+                },
+            ],
+            owners: BTreeMap::new(),
+        };
+
+        let response = impacted_graph(&graph, &request);
+
+        assert_eq!(response.metrics.changed_path_count, 3);
+        assert_eq!(response.metrics.uncovered_path_count, 1);
+        assert_eq!(
+            response.metrics.impacted_node_count,
+            response.impacted.len()
+        );
+        assert_eq!(response.metrics.owner_count, 2);
+        assert_eq!(
+            response.metrics.missing_evidence_count,
+            response.missing_evidence.len()
+        );
+        assert_eq!(
+            response.metrics.scope_warning_count,
+            response.scope_warnings.len()
+        );
+        assert_eq!(response.metrics.touched_only_path_count, 1);
+        assert_eq!(response.metrics.multi_owner_path_count, 1);
+        assert_eq!(response.metrics.coverage_percent, 67);
+    }
+
+    #[test]
     fn scope_warning_for_docs_only_paths_with_non_document_impacts() {
         let graph = compile_atlas(
             DiscoveredRepo {
@@ -4377,6 +4465,22 @@ mod golden {
             Some("crates/engine/src/lib.rs")
         );
         assert_eq!(first.get("owners"), Some(&json!(["@ownerscope"])));
+        assert_eq!(
+            value.pointer("/payload/metrics/changed_path_count"),
+            Some(&json!(1))
+        );
+        assert_eq!(
+            value.pointer("/payload/metrics/uncovered_path_count"),
+            Some(&json!(0))
+        );
+        assert_eq!(
+            value.pointer("/payload/metrics/owner_count"),
+            Some(&json!(1))
+        );
+        assert_eq!(
+            value.pointer("/payload/metrics/coverage_percent"),
+            Some(&json!(100))
+        );
     }
 
     #[test]

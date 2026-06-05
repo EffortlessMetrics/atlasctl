@@ -953,6 +953,28 @@ pub struct ImpactHit {
     pub owners: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+pub struct ImpactMetrics {
+    #[serde(default)]
+    pub changed_path_count: usize,
+    #[serde(default)]
+    pub uncovered_path_count: usize,
+    #[serde(default)]
+    pub impacted_node_count: usize,
+    #[serde(default)]
+    pub owner_count: usize,
+    #[serde(default)]
+    pub missing_evidence_count: usize,
+    #[serde(default)]
+    pub scope_warning_count: usize,
+    #[serde(default)]
+    pub touched_only_path_count: usize,
+    #[serde(default)]
+    pub multi_owner_path_count: usize,
+    #[serde(default)]
+    pub coverage_percent: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImpactResponse {
     pub impacted: Vec<ImpactHit>,
@@ -961,6 +983,8 @@ pub struct ImpactResponse {
     pub uncovered: Vec<ChangedPath>,
     #[serde(default)]
     pub changed_paths: Vec<ChangedPath>,
+    #[serde(default)]
+    pub metrics: ImpactMetrics,
     #[serde(default)]
     pub missing_evidence: Vec<AtlasDiagnostic>,
     #[serde(default)]
