@@ -1,7 +1,10 @@
 ---
 source: crates/atlasctl-core/src/lib.rs
+assertion_line: 4288
 expression: md
 ---
+- **Schema version**: `1`
+
 # Why: `scen:example-build`
 
 - **Title**: Example build

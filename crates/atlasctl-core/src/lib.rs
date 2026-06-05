@@ -670,6 +670,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
     let mut impacted = BTreeMap::<AtlasId, ImpactHit>::new();
     let mut uncovered = BTreeMap::<RepoRelativePath, Vec<String>>::new();
     let mut impacted_ids = BTreeSet::<AtlasId>::new();
+    let mut direct_impacted_ids = BTreeSet::<AtlasId>::new();
     let mut changed_paths = BTreeMap::<RepoRelativePath, Vec<String>>::new();
     let mut coverage_by_path = BTreeMap::<RepoRelativePath, (Vec<AtlasId>, Vec<AtlasId>)>::new();
 
@@ -757,6 +758,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
                 }
 
                 impacted_ids.insert(node.id.clone());
+                direct_impacted_ids.insert(node.id.clone());
             }
         }
         if !found_any {
@@ -876,7 +878,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             .then_with(|| left.message.cmp(&right.message))
     });
 
-    let mut scope_warnings = compute_scope_warnings(request, &impacted);
+    let mut scope_warnings = compute_scope_warnings(request, &impacted, &direct_impacted_ids);
     if !touched_only_paths.is_empty() {
         for path in touched_only_paths.iter().take(5) {
             scope_warnings.push(format!(
@@ -979,6 +981,7 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
 fn compute_scope_warnings(
     request: &ImpactRequest,
     impacted: &BTreeMap<AtlasId, ImpactHit>,
+    direct_impacted: &BTreeSet<AtlasId>,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
 
@@ -1009,7 +1012,10 @@ fn compute_scope_warnings(
         }
     }
 
-    for hit in impacted.values() {
+    for hit_id in direct_impacted {
+        let Some(hit) = impacted.get(hit_id) else {
+            continue;
+        };
         match hit.node.kind {
             NodeKind::Spec | NodeKind::Proposal | NodeKind::Adr => {
                 impacted_has_protocol_spec = true;
@@ -1205,7 +1211,11 @@ fn validate_completeness(
         });
 
         // Infra nodes like crates and operational commands are allowed to be loosely coupled
-        if !has_any_edge && node.role != NodeRole::Infra && node.role != NodeRole::Command {
+        if !has_any_edge
+            && node.role != NodeRole::Infra
+            && node.role != NodeRole::Command
+            && node.role != NodeRole::Document
+        {
             diagnostics.push(AtlasDiagnostic::new(
                 DiagnosticCode::OrphanNode,
                 format!("node `{}` has no relationships in the graph", node.id),
@@ -2824,6 +2834,67 @@ mod tests {
         assert!(response.scope_warnings.iter().any(|warning| {
             warning.contains("documentation-only paths affect non-document surfaces")
         }));
+    }
+
+    #[test]
+    fn scope_warning_not_triggered_when_non_document_impacts_are_indirect() {
+        let graph = compile_atlas(
+            DiscoveredRepo {
+                repo: RepoDescriptor {
+                    name: "sample".to_string(),
+                },
+                config: AtlasConfig::default(),
+                nodes: vec![
+                    AtlasNode {
+                        id: AtlasId::parse("doc:manual").expect("valid id"),
+                        role: NodeKind::Document.role(),
+                        kind: NodeKind::Document,
+                        title: "Manual documentation".to_string(),
+                        summary: None,
+                        owns: vec![PathSelector::new("docs/implementation-plan.md")],
+                        touches: Vec::new(),
+                        attrs: BTreeMap::new(),
+                        provenance: Provenance::new(RepoRelativePath::new(
+                            "atlas/example.atlas.yaml",
+                        )),
+                    },
+                    node("scen:doc-driven-proof", NodeKind::Scenario),
+                ],
+                edges: vec![edge(
+                    "doc:manual",
+                    EdgeKind::Supports,
+                    "scen:doc-driven-proof",
+                )],
+                diagnostics: vec![],
+            },
+            ValidationProfile::Default,
+        );
+
+        let request = ImpactRequest {
+            paths: vec![ChangedPath {
+                path: "docs/implementation-plan.md".into(),
+                owners: vec![],
+            }],
+            owners: BTreeMap::new(),
+        };
+        let response = impacted_graph(&graph, &request);
+
+        assert!(
+            !response
+                .scope_warnings
+                .iter()
+                .any(|warning| warning
+                    .contains("documentation-only paths affect non-document surfaces")),
+            "documentation-only warning should only consider direct non-document impacts"
+        );
+        assert!(
+            response
+                .impacted
+                .iter()
+                .any(|hit| hit.node.id.as_str() == "scen:doc-driven-proof"
+                    && hit.reason.contains("via")),
+            "graph expansion should still include non-document neighbors"
+        );
     }
 
     #[test]

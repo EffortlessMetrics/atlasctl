@@ -21,15 +21,25 @@ The source-of-truth stack proof-topology closeout follow-up includes:
 The closeout changes were verified with:
 
 - `rtk cargo fmt --all -- --check`
-- `rtk cargo test --workspace` (197 tests)
+- `rtk cargo test --workspace` (231 tests)
 - `rtk cargo run -p xtask -- ci-full`
 - `rtk cargo run -p xtask -- docs-check`
 - `rtk cargo run -p xtask -- schema --check`
 - `rtk cargo run -p atlasctl-cli -- doctor --profile ci --repo-root .`
 - `rtk cargo run -p atlasctl-cli -- impacted --base main --head HEAD --format review-packet --repo-root .`
+- `rtk cargo run -p atlasctl-cli -- impacted --base main --head HEAD --paths crates/atlasctl-core/src/lib.rs --format review-packet --repo-root .`
 - `rtk cargo run -p atlasctl-cli -- why --repo-root . --path crates/atlasctl-core/src/lib.rs`
 - `rtk cargo run -p atlasctl-cli -- impacted --base HEAD~1 --head HEAD --format review-packet --repo-root .`
 - `rtk cargo test -p atlasctl-cli --test cli_integration test_why_by_missing_path`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_review_packet_path_normalization_for_absolute_paths`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_why_by_missing_absolute_path_reports_no_match`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_why_by_missing_absolute_path_json_fails`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_impacted_by_missing_absolute_path_is_not_absolute`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_impacted_markdown_by_missing_absolute_path_is_not_absolute`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_review_packet_json_paths_for_missing_absolute_path_are_repo_relative`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_review_packet_markdown_missing_absolute_path_is_repo_relative`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_impacted_by_missing_windows_absolute_path_is_not_absolute`
+- `rtk cargo test -p atlasctl-cli --test cli_integration test_review_packet_markdown_missing_windows_absolute_path_is_repo_relative`
 
 ### Release Bar
 
@@ -121,7 +131,7 @@ Note: `atlasctl` requires Rust 1.92 or later (Edition 2024).
 
 ### Test Coverage
 
-- **197 tests** across all crates
+- **231 tests** across all crates
 - **BDD tests**: Scenario-based tests validating graph semantics
 - **Property tests**: Proptest-based tests for determinism and integrity
 - **Golden file tests**: Snapshot tests for JSON, Markdown, and GH summaries

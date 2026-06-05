@@ -150,11 +150,57 @@ fn schema(check: bool) -> Result<(), String> {
 }
 
 fn project_root() -> Utf8PathBuf {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    Utf8PathBuf::from(manifest_dir)
-        .parent()
-        .unwrap()
-        .to_path_buf()
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let manifest_dir = Utf8PathBuf::from(manifest_dir);
+        if let Some(parent) = manifest_dir.parent() {
+            return parent.to_path_buf();
+        }
+    }
+
+    if let Some(project_root) = project_root_from_current_exe() {
+        return project_root;
+    }
+
+    if let Some(project_root) = project_root_from_current_dir() {
+        return project_root;
+    }
+
+    env::current_dir()
+        .ok()
+        .and_then(|dir| Utf8PathBuf::from_path_buf(dir).ok())
+        .unwrap_or_else(|| Utf8PathBuf::from("."))
+}
+
+fn project_root_from_current_exe() -> Option<Utf8PathBuf> {
+    let current_exe = env::current_exe().ok()?;
+    workspace_root_from(Utf8PathBuf::from_path_buf(current_exe.parent()?.to_path_buf()).ok()?)
+}
+
+fn project_root_from_current_dir() -> Option<Utf8PathBuf> {
+    let current_dir = env::current_dir().ok()?;
+    workspace_root_from(Utf8PathBuf::from_path_buf(current_dir).ok()?)
+}
+
+fn workspace_root_from(mut start: Utf8PathBuf) -> Option<Utf8PathBuf> {
+    loop {
+        if is_workspace_root(&start) {
+            return Some(start);
+        }
+
+        if !start.pop() {
+            return None;
+        }
+    }
+}
+
+fn is_workspace_root(path: &camino::Utf8Path) -> bool {
+    let manifest_path = path.join("Cargo.toml");
+    let manifest = match std::fs::read_to_string(manifest_path) {
+        Ok(contents) => contents,
+        Err(_) => return false,
+    };
+
+    manifest.contains("[workspace]")
 }
 
 fn run(command: &str, args: &[&str]) -> Result<(), String> {
@@ -170,5 +216,76 @@ fn run(command: &str, args: &[&str]) -> Result<(), String> {
             "`{command} {}` exited with {status}",
             args.join(" ")
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_workspace_root, project_root, workspace_root_from};
+    use std::{
+        env, fs,
+        path::PathBuf,
+        process::id,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be available")
+            .as_nanos();
+        env::temp_dir().join(format!("atlasctl-xtask-{prefix}-{nanos}-{}", id()))
+    }
+
+    #[test]
+    fn project_root_points_to_workspace_root() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let expected_root = manifest_dir
+            .parent()
+            .and_then(|path| camino::Utf8PathBuf::from_path_buf(path.to_path_buf()).ok())
+            .expect("xtask manifest should be inside the workspace");
+
+        assert_eq!(project_root(), expected_root);
+    }
+
+    #[test]
+    fn workspace_root_from_current_exe_matches_workspace_root() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|path| camino::Utf8PathBuf::from_path_buf(path.to_path_buf()).ok())
+            .expect("xtask manifest should be inside the workspace");
+
+        let start = env::current_exe()
+            .expect("current_exe should be available")
+            .parent()
+            .map(|path| path.to_path_buf())
+            .and_then(|path| camino::Utf8PathBuf::from_path_buf(path).ok())
+            .expect("current executable path should be utf8");
+
+        assert_eq!(workspace_root_from(start), Some(workspace_root));
+    }
+
+    #[test]
+    fn is_workspace_root_is_false_for_non_workspace_manifest() {
+        let dir = unique_temp_dir("no-workspace");
+        fs::create_dir_all(&dir).expect("test temp directory should exist");
+        fs::write(dir.join("Cargo.toml"), "[package]\nname = \"tmp\"")
+            .expect("non-workspace manifest should be written");
+
+        let start = camino::Utf8PathBuf::from_path_buf(dir).expect("temp path should be utf8");
+        assert!(!is_workspace_root(&start));
+        fs::remove_dir_all(start.as_std_path()).expect("temp dir should be cleaned up");
+    }
+
+    #[test]
+    fn workspace_root_from_temp_path_without_workspace_is_none() {
+        let dir = unique_temp_dir("workspace-root-missing");
+        fs::create_dir_all(&dir).expect("test temp directory should exist");
+
+        let start =
+            camino::Utf8PathBuf::from_path_buf(dir.clone()).expect("temp path should be utf8");
+        assert!(workspace_root_from(start).is_none());
+        fs::remove_dir_all(&dir).expect("temp dir should be cleaned up");
     }
 }

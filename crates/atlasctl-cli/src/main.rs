@@ -643,7 +643,7 @@ edges:
             }
         }
         Command::Why(args) => {
-            let path_subject = normalize_path_input(&args.subject);
+            let path_subject = normalize_path_input_for_repo(&args.common.repo_root, &args.subject);
             let (subject, allow_recursive_touch, has_existing_path) = if args.path {
                 let path = args.common.repo_root.join(path_subject.as_str());
                 (
@@ -867,7 +867,7 @@ fn impact_source(
     if let Some(paths) = paths {
         let mut expanded_paths = Vec::new();
         for path in paths {
-            let path = RepoRelativePath::new(normalize_path_input(&path));
+            let path = RepoRelativePath::new(normalize_path_input_for_repo(repo_root, &path));
             if should_expand_paths(repo_root, &path) {
                 expanded_paths.extend(expand_path_inputs(repo_root, &path));
             } else {
@@ -1290,6 +1290,143 @@ fn normalize_path_input(value: &str) -> String {
     value.replace('\\', "/")
 }
 
+fn normalize_path_input_for_repo(repo_root: &Utf8PathBuf, value: &str) -> String {
+    let normalized_root = normalize_path_outside_repo(
+        normalize_path_input(repo_root.as_str())
+            .trim_end_matches('/')
+            .to_string()
+            .as_str(),
+    );
+    if normalized_root.is_empty() {
+        return normalize_path_outside_repo(&normalize_path_input(value));
+    }
+
+    let normalized_value = normalize_path_outside_repo(&normalize_path_input(value));
+    if cfg!(windows) {
+        let normalized_root_lc = normalized_root.to_ascii_lowercase();
+        if normalized_value.eq_ignore_ascii_case(&normalized_root_lc) {
+            String::new()
+        } else if normalized_value.len() > normalized_root.len()
+            && normalized_value[..normalized_root.len()].eq_ignore_ascii_case(&normalized_root)
+            && normalized_value.as_bytes()[normalized_root.len()] == b'/'
+        {
+            normalized_value[normalized_root.len() + 1..].to_string()
+        } else {
+            normalized_value
+        }
+    } else if normalized_value == normalized_root {
+        String::new()
+    } else if let Some(stripped) = normalized_value.strip_prefix(&format!("{normalized_root}/")) {
+        stripped.to_string()
+    } else {
+        normalized_value
+    }
+}
+
+fn normalize_path_outside_repo(path: &str) -> String {
+    let mut normalized = path;
+
+    if path.len() >= 3 {
+        let bytes = path.as_bytes();
+        let has_drive_prefix = bytes[1] == b':'
+            && bytes[0].is_ascii_alphabetic()
+            && (bytes[2] == b'/' || bytes[2] == b'\\');
+        if has_drive_prefix {
+            normalized = &path[3..];
+        }
+    }
+
+    let normalized = normalized.trim_start_matches(&['/', '\\'][..]);
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if !parts.is_empty() {
+                    parts.pop();
+                }
+            }
+            _ => parts.push(part),
+        }
+    }
+
+    parts.join("/")
+}
+
 fn path_has_glob_chars(value: &str) -> bool {
     value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_path_input_for_repo, normalize_path_outside_repo};
+    use camino::Utf8PathBuf;
+
+    #[test]
+    fn normalize_path_input_for_repo_preserves_case_for_repo_relative_result() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized =
+            normalize_path_input_for_repo(&repo_root, "C:/repo/crates/engine/src/lib.rs");
+
+        assert_eq!(normalized, "crates/engine/src/lib.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_collapses_repo_root_reference_to_empty() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        assert_eq!(
+            normalize_path_input_for_repo(&repo_root, "C:/repo"),
+            "".to_string()
+        );
+        assert_eq!(
+            normalize_path_input_for_repo(&repo_root, "C:/repo/"),
+            "".to_string()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_path_input_for_repo_preserves_case_for_repo_relative_result_windows() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized =
+            normalize_path_input_for_repo(&repo_root, "C:/REPO/crates/engine/src/lib.rs");
+
+        assert_eq!(normalized, "crates/engine/src/lib.rs");
+
+        let normalized_with_mixed_case =
+            normalize_path_input_for_repo(&repo_root, "C:/REPO/CrAtEs/Engine/Source.rs");
+        assert_eq!(normalized_with_mixed_case, "CrAtEs/Engine/Source.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_normalizes_windows_outside_path() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized = normalize_path_input_for_repo(&repo_root, "D:\\not\\a\\real\\path.rs");
+
+        assert_eq!(normalized, "not/a/real/path.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_collapses_repo_relative_dot_segments() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized = normalize_path_input_for_repo(&repo_root, "C:/repo/src/../engine/lib.rs");
+
+        assert_eq!(normalized, "engine/lib.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_normalizes_absolute_dot_segments() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized =
+            normalize_path_input_for_repo(&repo_root, "C:/repo/../repo/src/../engine/../lib.rs");
+
+        assert_eq!(normalized, "lib.rs");
+    }
+
+    #[test]
+    fn normalize_path_outside_repo_collapse_dot_segments() {
+        let normalized = normalize_path_outside_repo("C:/tmp/repo/../service/./output.txt");
+
+        assert_eq!(normalized, "tmp/service/output.txt");
+    }
 }
