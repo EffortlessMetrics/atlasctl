@@ -4993,6 +4993,7 @@ edges:
     assert!(stdout.contains("## 👤 Owners"));
     assert!(stdout.contains("Scope Warnings"));
     assert!(stdout.contains("Next Actions"));
+    assert!(stdout.contains("atlasctl scaffold gap requirement_not_proven"));
 }
 
 #[test]
@@ -5072,6 +5073,15 @@ edges:
             .any(|fix| fix
                 == "add a scenario that proves this requirement and connects to a command"),
         "expected next-action suggestion for missing requirement evidence"
+    );
+    assert!(
+        payload
+            .payload
+            .suggested_fixes
+            .iter()
+            .any(|fix| fix
+                == "run `atlasctl scaffold gap requirement_not_proven` to create starter metadata for this missing proof"),
+        "expected scaffold next-action suggestion for missing requirement evidence"
     );
 }
 
