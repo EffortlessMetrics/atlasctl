@@ -1,9 +1,11 @@
 ---
 source: crates/atlasctl-core/src/lib.rs
+assertion_line: 4342
 expression: summary
 ---
 ### 🎯 Atlas Impact Analysis
 
+- **Schema version**: `1`
 - **Impacted Behaviors**: `5`
 - **Uncovered Changes**: `0`
 

@@ -6,7 +6,14 @@ nodes:
   - id: scen:glob-touch
     kind: scenario
     title: Glob touch
-    paths:
+    owns:
+      - atlas.toml
+      - atlas/example.atlas.yaml
+      - crates/**/*.rs
+      - crates/**/Cargo.toml
+      - docs/**/*.md
+      - Cargo.toml
+    touches:
       - crates/**/*.rs
 
   - id: cmd:ci-fast

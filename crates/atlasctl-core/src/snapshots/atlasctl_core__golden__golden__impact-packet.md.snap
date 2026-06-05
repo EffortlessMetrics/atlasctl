@@ -2,6 +2,8 @@
 source: crates/atlasctl-core/src/lib.rs
 expression: packet
 ---
+- Schema version: `1`
+
 # 📦 Atlas Review Packet
 
 This packet summarizes what changed, what surface is impacted, and what proof evidence is missing.

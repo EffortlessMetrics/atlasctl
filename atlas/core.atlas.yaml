@@ -60,6 +60,15 @@ nodes:
     title: v0.1 proof-topology closeout
     summary: Capture final governance, evidence, and next-goal handoff for the lane.
 
+  - id: doc:repository-documentation
+    kind: document
+    title: Repository documentation
+    summary: Documentation files for operator guidance, process notes, and release handoff.
+    owns:
+      - BUILDING.md
+      - TESTING.md
+      - fixtures/**/*.md
+
   - id: scen:post-closeout-review-surface-hardening
     kind: scenario
     title: Post-closeout review-surface hardening
@@ -68,9 +77,7 @@ nodes:
       - docs/handoffs/*.md
       - .codex/**/*.toml
     touches:
-      - docs/**/*.md
       - .codex/**/*.toml
-      - docs/status/**/*.md
       - policy/**/*.toml
       - schemas/*.json
       - RELEASE.md
@@ -118,7 +125,10 @@ nodes:
       - crates/atlasctl-app/src/lib.rs
       - crates/atlasctl-discover-fs/src/lib.rs
       - crates/atlasctl-types/src/lib.rs
-      - crates/atlasctl-core/src/snapshots/atlasctl_core__golden__golden__impact-packet.md.snap
+      - fixtures/**/*.toml
+      - fixtures/**/*.rs
+      - fixtures/**/*.yaml
+      - xtask/src/main.rs
     touches:
       - atlas/core.atlas.yaml
       - atlas/*.yaml
@@ -133,12 +143,9 @@ nodes:
       - Cargo.lock
       - crates/atlasctl-*/**
       - codecov.yml
-      - fixtures/**/*.md
       - fixtures/**/*.toml
       - fixtures/**/*.rs
       - fixtures/**/*.yaml
-      - docs/**/*.md
-      - docs/handoffs/*.md
       - schemas/*.json
       - policy/**/*.toml
       - .codex/**
@@ -174,6 +181,9 @@ edges:
   - from: scen:build-emits-canonical-atlas
     kind: emits
     to: artifact:atlas-markdown
+  - from: scen:full-release-verification
+    kind: emits
+    to: artifact:golden-snapshots
 
   - from: scen:build-emits-canonical-atlas
     kind: exercises

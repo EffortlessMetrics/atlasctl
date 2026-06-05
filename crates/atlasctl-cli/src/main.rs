@@ -11,10 +11,11 @@ use atlasctl_types::{
     AtlasId, ChangedPath, ExitCode, ImpactEnvelope, NodeKind, QueryRequest, RenderFormat,
     RepoRelativePath, TraceDirection, TraceRequest, ValidationProfile, WhyRequest, WhySubject,
 };
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::path::Component;
 use std::process::exit;
-use std::{fs, str::FromStr};
+use std::{env, fs, str::FromStr};
 
 #[derive(Debug, Parser)]
 #[command(name = "atlasctl")]
@@ -263,12 +264,14 @@ fn run(
 ) -> Result<ExitCode, String> {
     match cli.command {
         Command::Init(args) => {
-            let config_path = args.repo_root.join("atlas.toml");
+            let repo_root = resolve_repo_root(&args.repo_root);
+            let config_path = repo_root.join("atlas.toml");
             if config_path.exists() {
                 return Err(format!("`{config_path}` already exists"));
             }
 
-            let repo_name = args.repo_root.file_name().unwrap_or("repo").to_string();
+            let repo_name =
+                normalize_path_last_name(&repo_root).unwrap_or_else(|| "repo".to_string());
 
             let content = format!(
                 r#"[repo]
@@ -296,7 +299,8 @@ warnings_as_errors = true
             Ok(ExitCode::Ok)
         }
         Command::Scaffold(args) => {
-            let atlas_dir = args.common.repo_root.join("atlas");
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let atlas_dir = repo_root.join("atlas");
             if !atlas_dir.exists() {
                 fs::create_dir_all(&atlas_dir)
                     .map_err(|err| format!("failed to create `atlas/` directory: {err}"))?;
@@ -548,7 +552,8 @@ edges:
             })
         }
         Command::Impacted(args) => {
-            let source = impact_source(args.paths, &args.common.repo_root, args.base, args.head);
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let source = impact_source(args.paths, &repo_root, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -596,7 +601,8 @@ edges:
             }
         }
         Command::ReviewPacket(args) => {
-            let source = impact_source(args.paths, &args.common.repo_root, args.base, args.head);
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let source = impact_source(args.paths, &repo_root, args.base, args.head);
 
             let outcome = service
                 .impacted(&ImpactOptions {
@@ -643,9 +649,10 @@ edges:
             }
         }
         Command::Why(args) => {
-            let path_subject = normalize_path_input(&args.subject);
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let path_subject = normalize_path_input_for_repo(&repo_root, &args.subject);
             let (subject, allow_recursive_touch, has_existing_path) = if args.path {
-                let path = args.common.repo_root.join(path_subject.as_str());
+                let path = repo_root.join(path_subject.as_str());
                 (
                     WhySubject::Path(RepoRelativePath::new(path_subject.clone())),
                     path.exists() || path_has_glob_chars(&path_subject),
@@ -851,11 +858,52 @@ edges:
 }
 
 fn compile_options(common: &CommonArgs) -> CompileOptions {
+    let repo_root = resolve_repo_root(&common.repo_root);
+    let config_path = common.config.as_ref().map(|path| {
+        if path.is_absolute() {
+            path.to_owned()
+        } else {
+            repo_root.join(path)
+        }
+    });
+
     CompileOptions {
-        repo_root: common.repo_root.clone(),
-        config_path: common.config.clone(),
+        repo_root,
+        config_path,
         profile: common.profile.into(),
     }
+}
+
+fn resolve_repo_root(repo_root: &Utf8PathBuf) -> Utf8PathBuf {
+    if repo_root.is_absolute() {
+        return repo_root.clone();
+    }
+
+    env::current_dir()
+        .ok()
+        .and_then(|cwd| Utf8Path::from_path(&cwd).map(|cwd_path| cwd_path.join(repo_root)))
+        .unwrap_or_else(|| repo_root.clone())
+}
+
+fn normalize_path_last_name(path: &Utf8Path) -> Option<String> {
+    let mut segments = Vec::<String>::new();
+
+    for component in path.as_std_path().components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !segments.is_empty() {
+                    segments.pop();
+                }
+            }
+            Component::Normal(part) => {
+                segments.push(part.to_string_lossy().to_string());
+            }
+            Component::Prefix(_) | Component::RootDir => {}
+        }
+    }
+
+    segments.pop()
 }
 
 fn impact_source(
@@ -867,7 +915,7 @@ fn impact_source(
     if let Some(paths) = paths {
         let mut expanded_paths = Vec::new();
         for path in paths {
-            let path = RepoRelativePath::new(normalize_path_input(&path));
+            let path = RepoRelativePath::new(normalize_path_input_for_repo(repo_root, &path));
             if should_expand_paths(repo_root, &path) {
                 expanded_paths.extend(expand_path_inputs(repo_root, &path));
             } else {
@@ -1290,6 +1338,163 @@ fn normalize_path_input(value: &str) -> String {
     value.replace('\\', "/")
 }
 
+fn normalize_path_input_for_repo(repo_root: &Utf8PathBuf, value: &str) -> String {
+    let normalized_root = normalize_path_outside_repo(
+        normalize_path_input(resolve_repo_root(repo_root).as_str())
+            .trim_end_matches('/')
+            .to_string()
+            .as_str(),
+    );
+    if normalized_root.is_empty() {
+        return normalize_path_outside_repo(&normalize_path_input(value));
+    }
+
+    let normalized_value = normalize_path_outside_repo(&normalize_path_input(value));
+    if cfg!(windows) {
+        let normalized_root_lc = normalized_root.to_ascii_lowercase();
+        if normalized_value.eq_ignore_ascii_case(&normalized_root_lc) {
+            String::new()
+        } else if normalized_value.len() > normalized_root.len()
+            && normalized_value[..normalized_root.len()].eq_ignore_ascii_case(&normalized_root)
+            && normalized_value.as_bytes()[normalized_root.len()] == b'/'
+        {
+            normalized_value[normalized_root.len() + 1..].to_string()
+        } else {
+            normalized_value
+        }
+    } else if normalized_value == normalized_root {
+        String::new()
+    } else if let Some(stripped) = normalized_value.strip_prefix(&format!("{normalized_root}/")) {
+        stripped.to_string()
+    } else {
+        normalized_value
+    }
+}
+
+fn normalize_path_outside_repo(path: &str) -> String {
+    let mut normalized = path;
+
+    if path.len() >= 3 {
+        let bytes = path.as_bytes();
+        let has_drive_prefix = bytes[1] == b':'
+            && bytes[0].is_ascii_alphabetic()
+            && (bytes[2] == b'/' || bytes[2] == b'\\');
+        if has_drive_prefix {
+            normalized = &path[3..];
+        }
+    }
+
+    let normalized = normalized.trim_start_matches(&['/', '\\'][..]);
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if !parts.is_empty() {
+                    parts.pop();
+                }
+            }
+            _ => parts.push(part),
+        }
+    }
+
+    parts.join("/")
+}
+
 fn path_has_glob_chars(value: &str) -> bool {
     value.contains('*') || value.contains('?') || value.contains('[')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        normalize_path_input_for_repo, normalize_path_last_name, normalize_path_outside_repo,
+    };
+    use camino::Utf8PathBuf;
+
+    #[test]
+    fn normalize_path_input_for_repo_preserves_case_for_repo_relative_result() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized =
+            normalize_path_input_for_repo(&repo_root, "C:/repo/crates/engine/src/lib.rs");
+
+        assert_eq!(normalized, "crates/engine/src/lib.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_collapses_repo_root_reference_to_empty() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        assert_eq!(
+            normalize_path_input_for_repo(&repo_root, "C:/repo"),
+            "".to_string()
+        );
+        assert_eq!(
+            normalize_path_input_for_repo(&repo_root, "C:/repo/"),
+            "".to_string()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_path_input_for_repo_preserves_case_for_repo_relative_result_windows() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized =
+            normalize_path_input_for_repo(&repo_root, "C:/REPO/crates/engine/src/lib.rs");
+
+        assert_eq!(normalized, "crates/engine/src/lib.rs");
+
+        let normalized_with_mixed_case =
+            normalize_path_input_for_repo(&repo_root, "C:/REPO/CrAtEs/Engine/Source.rs");
+        assert_eq!(normalized_with_mixed_case, "CrAtEs/Engine/Source.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_normalizes_windows_outside_path() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized = normalize_path_input_for_repo(&repo_root, "D:\\not\\a\\real\\path.rs");
+
+        assert_eq!(normalized, "not/a/real/path.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_collapses_repo_relative_dot_segments() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized = normalize_path_input_for_repo(&repo_root, "C:/repo/src/../engine/lib.rs");
+
+        assert_eq!(normalized, "engine/lib.rs");
+    }
+
+    #[test]
+    fn normalize_path_input_for_repo_normalizes_absolute_dot_segments() {
+        let repo_root = Utf8PathBuf::from("C:/repo");
+        let normalized =
+            normalize_path_input_for_repo(&repo_root, "C:/repo/../repo/src/../engine/../lib.rs");
+
+        assert_eq!(normalized, "lib.rs");
+    }
+
+    #[test]
+    fn normalize_path_outside_repo_collapse_dot_segments() {
+        let normalized = normalize_path_outside_repo("C:/tmp/repo/../service/./output.txt");
+
+        assert_eq!(normalized, "tmp/service/output.txt");
+    }
+
+    #[test]
+    fn normalize_path_last_name_preserves_normalized_last_component() {
+        let path = Utf8PathBuf::from("alpha/beta/gamma");
+        assert_eq!(normalize_path_last_name(&path).as_deref(), Some("gamma"));
+    }
+
+    #[test]
+    fn normalize_path_last_name_skips_dot_and_parent_segments() {
+        let path = Utf8PathBuf::from("alpha/beta/../gamma/..");
+        assert_eq!(normalize_path_last_name(&path).as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn normalize_path_last_name_returns_none_for_empty_or_parent_only_path() {
+        assert_eq!(normalize_path_last_name(&Utf8PathBuf::from(".")), None);
+        assert_eq!(normalize_path_last_name(&Utf8PathBuf::from("..")), None);
+    }
 }

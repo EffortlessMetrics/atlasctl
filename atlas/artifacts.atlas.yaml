@@ -10,3 +10,9 @@ nodes:
     title: atlas.md
     paths:
       - .atlas/atlas.md
+
+  - id: artifact:golden-snapshots
+    kind: artifact
+    title: golden snapshots
+    paths:
+      - crates/atlasctl-core/src/snapshots/**/*.snap

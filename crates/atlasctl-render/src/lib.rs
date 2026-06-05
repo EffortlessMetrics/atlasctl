@@ -2,8 +2,8 @@
 
 use atlasctl_app::{RenderError, RenderPort};
 use atlasctl_types::{
-    ActiveGoalConfig, AtlasDiagnostic, AtlasGraph, AtlasNode, ChangedPath, EdgeKind,
-    ImpactEnvelope, ImpactResponse, NodeKind, RenderFormat, WhyEnvelope, WhyResponse,
+    ATLAS_SCHEMA_VERSION, ActiveGoalConfig, AtlasDiagnostic, AtlasGraph, AtlasNode, ChangedPath,
+    EdgeKind, ImpactEnvelope, ImpactResponse, NodeKind, RenderFormat, WhyEnvelope, WhyResponse,
 };
 use std::collections::BTreeSet;
 
@@ -201,6 +201,7 @@ fn render_impact_markdown(response: &ImpactResponse) -> String {
 
 fn render_review_packet(response: &ImpactResponse) -> String {
     let mut out = String::new();
+    out.push_str(&format!("- Schema version: `{}`\n\n", ATLAS_SCHEMA_VERSION));
 
     out.push_str("# 📦 Atlas Review Packet\n\n");
     out.push_str(
@@ -501,6 +502,10 @@ fn render_gh_summary(graph: &AtlasGraph) -> String {
     let mut out = String::new();
 
     out.push_str("### 🗺️ Atlas Summary\n\n");
+    out.push_str(&format!(
+        "- **Schema version**: `{}`\n",
+        ATLAS_SCHEMA_VERSION
+    ));
     out.push_str(&format!("- **Repository**: `{}`\n", graph.repo.name));
     out.push_str(&format!(
         "- **Inventory**: `{}` nodes, `{}` edges\n",
@@ -536,6 +541,10 @@ fn render_impact_gh_summary(response: &ImpactResponse) -> String {
     let mut out = String::new();
 
     out.push_str("### 🎯 Atlas Impact Analysis\n\n");
+    out.push_str(&format!(
+        "- **Schema version**: `{}`\n",
+        ATLAS_SCHEMA_VERSION
+    ));
 
     out.push_str(&format!(
         "- **Impacted Behaviors**: `{}`\n",
@@ -586,6 +595,10 @@ fn render_impact_gh_summary(response: &ImpactResponse) -> String {
 fn render_why_markdown(response: &WhyResponse) -> String {
     let mut out = String::new();
 
+    out.push_str(&format!(
+        "- **Schema version**: `{}`\n\n",
+        ATLAS_SCHEMA_VERSION
+    ));
     out.push_str(&format!("# Why: `{}`\n\n", response.root.id));
     out.push_str(&format!("- **Title**: {}\n", response.root.title));
     out.push_str(&format!("- **Kind**: `{}`\n", response.root.kind));
