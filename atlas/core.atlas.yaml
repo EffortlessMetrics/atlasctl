@@ -125,10 +125,10 @@ nodes:
       - crates/atlasctl-app/src/lib.rs
       - crates/atlasctl-discover-fs/src/lib.rs
       - crates/atlasctl-types/src/lib.rs
-      - crates/atlasctl-core/src/snapshots/atlasctl_core__golden__golden__impact-packet.md.snap
       - fixtures/**/*.toml
       - fixtures/**/*.rs
       - fixtures/**/*.yaml
+      - xtask/src/main.rs
     touches:
       - atlas/core.atlas.yaml
       - atlas/*.yaml
@@ -181,6 +181,9 @@ edges:
   - from: scen:build-emits-canonical-atlas
     kind: emits
     to: artifact:atlas-markdown
+  - from: scen:full-release-verification
+    kind: emits
+    to: artifact:golden-snapshots
 
   - from: scen:build-emits-canonical-atlas
     kind: exercises
