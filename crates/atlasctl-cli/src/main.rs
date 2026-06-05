@@ -13,6 +13,7 @@ use atlasctl_types::{
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::path::Component;
 use std::process::exit;
 use std::{env, fs, str::FromStr};
 
@@ -263,12 +264,14 @@ fn run(
 ) -> Result<ExitCode, String> {
     match cli.command {
         Command::Init(args) => {
-            let config_path = args.repo_root.join("atlas.toml");
+            let repo_root = resolve_repo_root(&args.repo_root);
+            let config_path = repo_root.join("atlas.toml");
             if config_path.exists() {
                 return Err(format!("`{config_path}` already exists"));
             }
 
-            let repo_name = args.repo_root.file_name().unwrap_or("repo").to_string();
+            let repo_name =
+                normalize_path_last_name(&repo_root).unwrap_or_else(|| "repo".to_string());
 
             let content = format!(
                 r#"[repo]
@@ -296,7 +299,8 @@ warnings_as_errors = true
             Ok(ExitCode::Ok)
         }
         Command::Scaffold(args) => {
-            let atlas_dir = args.common.repo_root.join("atlas");
+            let repo_root = resolve_repo_root(&args.common.repo_root);
+            let atlas_dir = repo_root.join("atlas");
             if !atlas_dir.exists() {
                 fs::create_dir_all(&atlas_dir)
                     .map_err(|err| format!("failed to create `atlas/` directory: {err}"))?;
@@ -854,9 +858,18 @@ edges:
 }
 
 fn compile_options(common: &CommonArgs) -> CompileOptions {
+    let repo_root = resolve_repo_root(&common.repo_root);
+    let config_path = common.config.as_ref().map(|path| {
+        if path.is_absolute() {
+            path.to_owned()
+        } else {
+            repo_root.join(path)
+        }
+    });
+
     CompileOptions {
-        repo_root: resolve_repo_root(&common.repo_root),
-        config_path: common.config.clone(),
+        repo_root,
+        config_path,
         profile: common.profile.into(),
     }
 }
@@ -870,6 +883,27 @@ fn resolve_repo_root(repo_root: &Utf8PathBuf) -> Utf8PathBuf {
         .ok()
         .and_then(|cwd| Utf8Path::from_path(&cwd).map(|cwd_path| cwd_path.join(repo_root)))
         .unwrap_or_else(|| repo_root.clone())
+}
+
+fn normalize_path_last_name(path: &Utf8Path) -> Option<String> {
+    let mut segments = Vec::<String>::new();
+
+    for component in path.as_std_path().components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !segments.is_empty() {
+                    segments.pop();
+                }
+            }
+            Component::Normal(part) => {
+                segments.push(part.to_string_lossy().to_string());
+            }
+            Component::Prefix(_) | Component::RootDir => {}
+        }
+    }
+
+    segments.pop()
 }
 
 fn impact_source(
@@ -1373,7 +1407,9 @@ fn path_has_glob_chars(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_path_input_for_repo, normalize_path_outside_repo};
+    use super::{
+        normalize_path_input_for_repo, normalize_path_last_name, normalize_path_outside_repo,
+    };
     use camino::Utf8PathBuf;
 
     #[test]
@@ -1442,5 +1478,23 @@ mod tests {
         let normalized = normalize_path_outside_repo("C:/tmp/repo/../service/./output.txt");
 
         assert_eq!(normalized, "tmp/service/output.txt");
+    }
+
+    #[test]
+    fn normalize_path_last_name_preserves_normalized_last_component() {
+        let path = Utf8PathBuf::from("alpha/beta/gamma");
+        assert_eq!(normalize_path_last_name(&path).as_deref(), Some("gamma"));
+    }
+
+    #[test]
+    fn normalize_path_last_name_skips_dot_and_parent_segments() {
+        let path = Utf8PathBuf::from("alpha/beta/../gamma/..");
+        assert_eq!(normalize_path_last_name(&path).as_deref(), Some("alpha"));
+    }
+
+    #[test]
+    fn normalize_path_last_name_returns_none_for_empty_or_parent_only_path() {
+        assert_eq!(normalize_path_last_name(&Utf8PathBuf::from(".")), None);
+        assert_eq!(normalize_path_last_name(&Utf8PathBuf::from("..")), None);
     }
 }

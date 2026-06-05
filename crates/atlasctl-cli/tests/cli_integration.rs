@@ -2,7 +2,7 @@
 // These tests verify the CLI behavior against fixture repos
 
 use assert_cmd::Command;
-use atlasctl_types::{AtlasGraph, ImpactEnvelope, WhyEnvelope};
+use atlasctl_types::{AtlasGraph, DiagnosticCode, ImpactEnvelope, WhyEnvelope};
 use predicates::prelude::*;
 use serde_json::Value;
 use std::fs;
@@ -257,6 +257,77 @@ fn test_build_with_ci_profile() {
 }
 
 #[test]
+fn test_build_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let output_dir = temp_dir.path().join("custom-build-output");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "build",
+            "--repo-root",
+            "..",
+            "--config",
+            "atlasctl-custom.toml",
+            "--out-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_dir.join("atlas.json").exists());
+    assert!(output_dir.join("atlas.md").exists());
+}
+
+#[test]
+fn test_build_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    let output_dir = temp_dir.path().join("custom-build-output");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "build",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "--out-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_dir.join("atlas.json").exists());
+    assert!(output_dir.join("atlas.md").exists());
+}
+
+#[test]
 fn test_build_with_strict_profile() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -446,6 +517,175 @@ fn test_check_json_outputs_repo_relative_paths() {
     }
 }
 
+#[test]
+fn test_check_with_parent_relative_repo_root_is_resolved_from_cwd() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args(["check", "--repo-root", ".."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("status: ok"));
+}
+
+#[test]
+fn test_check_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("doctor-drift");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("strict-default.toml");
+    fs::write(
+        &config_path,
+        "[profiles.default]\nwarnings_as_errors = true\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "check",
+            "--repo-root",
+            "..",
+            "--config",
+            "strict-default.toml",
+            "--profile",
+            "default",
+        ])
+        .output()
+        .expect("check command should execute");
+
+    assert_eq!(output.status.code(), Some(3));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("status: invalid"));
+}
+
+#[test]
+fn test_check_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("doctor-drift");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("strict-default.toml");
+    fs::write(
+        &config_path,
+        "[profiles.default]\nwarnings_as_errors = true\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "check",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "strict-default.toml",
+            "--profile",
+            "default",
+        ])
+        .output()
+        .expect("check command should execute");
+
+    assert_eq!(output.status.code(), Some(3));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("status: invalid"));
+}
+
+#[test]
+fn test_review_packet_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "review-packet",
+            "--repo-root",
+            "..",
+            "--config",
+            "atlasctl-custom.toml",
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let value: Value =
+        serde_json::from_slice(&output.stdout).expect("review-packet json should parse");
+    assert_eq!(value["schema_version"], 1);
+    let impacted = value["payload"]["impacted"]
+        .as_array()
+        .expect("impacted should be an array");
+    assert!(impacted.is_empty());
+    let uncovered = value["payload"]["uncovered"]
+        .as_array()
+        .expect("uncovered should be an array");
+    assert_eq!(uncovered.len(), 1);
+}
+
+#[test]
+fn test_review_packet_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "review-packet",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let value: Value =
+        serde_json::from_slice(&output.stdout).expect("review-packet json should parse");
+    assert_eq!(value["schema_version"], 1);
+    let impacted = value["payload"]["impacted"]
+        .as_array()
+        .expect("impacted should be an array");
+    assert!(impacted.is_empty());
+    let uncovered = value["payload"]["uncovered"]
+        .as_array()
+        .expect("uncovered should be an array");
+    assert_eq!(uncovered.len(), 1);
+}
+
 // ============================================================================
 // DOCTOR COMMAND TESTS
 // ============================================================================
@@ -513,6 +753,70 @@ fn test_doctor_json_paths_are_repo_relative() {
             assert_repo_relative_path(location.path.as_str(), "diagnostic location path");
         }
     }
+}
+
+#[test]
+fn test_doctor_with_ci_profile_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-ci.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "doctor",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-ci.toml",
+            "--profile",
+            "ci",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("doctor command should execute");
+
+    assert!(output.status.success());
+    let graph: AtlasGraph =
+        serde_json::from_slice(&output.stdout).expect("doctor json should parse");
+    assert_eq!(graph.schema_version, 1);
+}
+
+#[test]
+fn test_doctor_with_parent_relative_repo_root_is_resolved_from_cwd() {
+    let temp_dir = setup_temp_fixture("doctor-drift");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args(["doctor", "--repo-root", "..", "--format", "json"])
+        .output()
+        .expect("doctor command should execute");
+
+    assert!(output.status.success());
+    let graph: AtlasGraph =
+        serde_json::from_slice(&output.stdout).expect("doctor json should parse");
+    assert_eq!(graph.schema_version, 1);
 }
 
 // ============================================================================
@@ -609,6 +913,60 @@ fn test_query_invalid_kind() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unknown node kind"));
+}
+
+#[test]
+fn test_query_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    std::fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "query",
+            "--repo-root",
+            "..",
+            "--config",
+            "atlasctl-custom.toml",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no matches"));
+}
+
+#[test]
+fn test_query_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "query",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no matches"));
 }
 
 #[test]
@@ -760,6 +1118,37 @@ fn test_why_by_absolute_path_with_relative_repo_root_is_normalized() {
     assert!(stdout.contains("crates/engine/src/lib.rs"));
     assert!(!stdout.contains(&absolute_path));
     assert!(!stdout.contains(&repo_root));
+}
+
+#[test]
+fn test_why_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    std::fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "why",
+            "--repo-root",
+            "..",
+            "--path",
+            "crates/engine/src/lib.rs",
+            "--config",
+            "atlasctl-custom.toml",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("why command should execute");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("error: No matching node found"));
 }
 
 #[test]
@@ -954,6 +1343,112 @@ fn test_impacted_by_absolute_path_with_parent_relative_repo_root_is_normalized()
     assert_eq!(changed, vec!["crates/engine/src/lib.rs".to_string()]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains(&absolute_path));
+}
+
+#[test]
+fn test_impacted_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    std::fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "impacted",
+            "--repo-root",
+            "..",
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--config",
+            "atlasctl-custom.toml",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("impacted command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("impacted json should parse");
+    assert_eq!(payload.command, "impacted");
+    assert_eq!(payload.schema_version, 1);
+    let changed_paths = payload
+        .payload
+        .changed_paths
+        .into_iter()
+        .map(|path| path.path.as_str().to_string())
+        .collect::<Vec<_>>();
+    let uncovered_paths = payload
+        .payload
+        .uncovered
+        .into_iter()
+        .map(|path| path.path.as_str().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(changed_paths, vec!["crates/engine/src/lib.rs".to_string()]);
+    assert_eq!(
+        uncovered_paths,
+        vec!["crates/engine/src/lib.rs".to_string()]
+    );
+}
+
+#[test]
+fn test_impacted_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    std::fs::write(&config_path, "[discovery]\nroots = []\n").unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "impacted",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("impacted command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("impacted json should parse");
+    assert_eq!(payload.command, "impacted");
+    assert_eq!(payload.schema_version, 1);
+    let changed_paths = payload
+        .payload
+        .changed_paths
+        .into_iter()
+        .map(|path| path.path.as_str().to_string())
+        .collect::<Vec<_>>();
+    let uncovered_paths = payload
+        .payload
+        .uncovered
+        .into_iter()
+        .map(|path| path.path.as_str().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(changed_paths, vec!["crates/engine/src/lib.rs".to_string()]);
+    assert_eq!(
+        uncovered_paths,
+        vec!["crates/engine/src/lib.rs".to_string()]
+    );
 }
 
 #[test]
@@ -1316,7 +1811,7 @@ fn test_why_by_missing_path_review_packet_fails() {
             "--path",
             "totally/missing/path.rs",
             "--format",
-            "review-packet",
+            "json",
         ])
         .assert()
         .failure()
@@ -1461,6 +1956,78 @@ fn test_trace_incoming() {
         .success()
         .stdout(predicate::str::contains("root: req:example"))
         .stdout(predicate::str::contains("scen:example-build"));
+}
+
+#[test]
+fn test_trace_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "trace",
+            "--repo-root",
+            "..",
+            "--config",
+            "atlasctl-custom.toml",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root: scen:example-build"));
+}
+
+#[test]
+fn test_trace_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "trace",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "scen:example-build",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("root: scen:example-build"));
 }
 
 #[test]
@@ -2723,7 +3290,10 @@ fn test_impacted_review_packet_with_base_head() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("- Schema version: `1`"))
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("## 🧪 Proof Commands to Run"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"))
         .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
         .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
 }
@@ -2785,9 +3355,133 @@ fn test_review_packet_with_base_head() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("# 📦 Atlas Review Packet"))
+        .stdout(predicate::str::contains("- Schema version: `1`"))
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("## 🧪 Proof Commands to Run"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"))
         .stdout(predicate::str::contains("crates/engine/src/lib.rs"))
         .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
+}
+
+#[test]
+fn test_review_packet_with_base_head_and_relative_config_path_from_nested_dir() {
+    let (temp_dir, base, head) = setup_temp_git_fixture();
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "review-packet",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "--base",
+            base.as_str(),
+            "--head",
+            head.as_str(),
+            "--format",
+            "review-packet",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("- Schema version: `1`"))
+        .stdout(predicate::str::contains("## 👤 Owners"))
+        .stdout(predicate::str::contains("## 🧪 Proof Commands to Run"))
+        .stdout(predicate::str::contains("## ✅ Next Actions"))
+        .stdout(predicate::str::contains("## 🧭 Impacted Truth Surface"));
+}
+
+#[test]
+fn test_north_star_explanation_workflow_for_git_head() {
+    let (temp_dir, base, head) = setup_temp_git_fixture();
+    let repo_root = temp_dir.path().to_str().unwrap();
+    let absolute_path = temp_dir
+        .path()
+        .join("crates/engine/src/lib.rs")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "doctor",
+            "--repo-root",
+            repo_root,
+            "--profile",
+            "ci",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("doctor command should execute");
+    assert!(output.status.success());
+    let graph: AtlasGraph =
+        serde_json::from_slice(&output.stdout).expect("doctor json should parse");
+    assert_eq!(graph.schema_version, 1);
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "impacted",
+            "--repo-root",
+            repo_root,
+            "--base",
+            base.as_str(),
+            "--head",
+            head.as_str(),
+            "--format",
+            "review-packet",
+        ])
+        .output()
+        .expect("impacted command should execute");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("- Schema version: `1`"));
+    assert!(stdout.contains("## 👤 Owners"));
+    assert!(stdout.contains("## 🧪 Proof Commands to Run"));
+    assert!(stdout.contains("Missing Evidence"));
+    assert!(stdout.contains("Scope Warnings"));
+    assert!(stdout.contains("## ✅ Next Actions"));
+    assert!(stdout.contains("crates/engine/src/lib.rs"));
+    assert!(!stdout.contains("C:\\"));
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            repo_root,
+            "--path",
+            absolute_path.as_str(),
+        ])
+        .output()
+        .expect("why command should execute");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Node: scen:example-build"));
+    assert!(stdout.contains("crates/engine/src/lib.rs"));
+    assert!(!stdout.contains(&absolute_path));
+    assert!(!stdout.contains("\\"));
 }
 
 #[test]
@@ -2896,6 +3590,92 @@ fn test_export_json_to_file() {
     let content = fs::read_to_string(&output_file).unwrap();
     assert!(content.contains("\"repo\""));
     assert!(content.contains("\"nodes\""));
+}
+
+#[test]
+fn test_export_with_parent_relative_repo_root_resolves_relative_config_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let output_file = temp_dir.path().join("custom-output.json");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "export",
+            "--repo-root",
+            "..",
+            "--config",
+            "atlasctl-custom.toml",
+            "--format",
+            "json",
+            "--out",
+            output_file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("\"schema_version\""));
+}
+
+#[test]
+fn test_export_with_absolute_repo_root_and_relative_config_path_from_repo_root() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    let repo_root = temp_dir
+        .path()
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    let output_file = temp_dir.path().join("custom-output-absolute-root.json");
+    let config_path = temp_dir.path().join("atlasctl-custom.toml");
+    fs::write(
+        &config_path,
+        r#"
+schema_version = 1
+
+[discovery]
+roots = ["atlas", "docs"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "export",
+            "--repo-root",
+            repo_root.to_str().expect("repo root should be valid utf-8"),
+            "--config",
+            "atlasctl-custom.toml",
+            "--format",
+            "json",
+            "--out",
+            output_file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(output_file.exists());
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("\"schema_version\""));
 }
 
 #[test]
@@ -3057,6 +3837,34 @@ fn test_init_command() {
 }
 
 #[test]
+fn test_init_with_parent_relative_repo_root_is_resolved_from_cwd() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+    let expected_repo_name = temp_dir
+        .path()
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args(["init", "--repo-root", ".."])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Initialized atlas"));
+
+    let config_path = temp_dir.path().join("atlas.toml");
+    assert!(config_path.exists());
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("[repo]"));
+    assert!(content.contains(&format!("name = \"{expected_repo_name}\"")));
+}
+
+#[test]
 fn test_scaffold_scenario() {
     let temp_dir = setup_temp_fixture("valid-minimal");
 
@@ -3084,6 +3892,30 @@ fn test_scaffold_scenario() {
         .args(["check", "--repo-root", temp_dir.path().to_str().unwrap()])
         .assert()
         .stdout(predicate::str::contains("nodes: 7")); // 6 original + 1 scaffolded
+}
+
+#[test]
+fn test_scaffold_with_parent_relative_repo_root_is_resolved_from_cwd() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let nested_dir = temp_dir.path().join("nested");
+    std::fs::create_dir(&nested_dir).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .current_dir(&nested_dir)
+        .args([
+            "scaffold",
+            "--repo-root",
+            "..",
+            "scenario",
+            "nested-feature",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scaffolded scenario"));
+
+    let scaffold_file = temp_dir.path().join("atlas/nested-feature.atlas.yaml");
+    assert!(scaffold_file.exists());
 }
 
 #[test]
@@ -4093,6 +4925,154 @@ edges:
             "replace `touches` metadata with explicit `owns` coverage for accountable ownership",
         ))
         .stdout(predicate::str::contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_includes_missing_evidence_for_unproven_requirement() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_yaml = r#"nodes:
+  - id: req:example
+    kind: requirement
+    title: Example requirement
+
+  - id: req:unproven
+    kind: requirement
+    title: Unproven requirement
+    touches:
+      - crates/engine/src/lib.rs
+
+  - id: scen:example-build
+    kind: scenario
+    title: Example build
+    paths:
+      - crates/engine/src/lib.rs
+
+  - id: cmd:ci-fast
+    kind: command
+    title: Fast CI
+
+edges:
+  - from: scen:example-build
+    kind: proves
+    to: req:example
+  - from: scen:example-build
+    kind: runs_with
+    to: cmd:ci-fast
+  - from: scen:example-build
+    kind: exercises
+    to: crate:engine
+  - from: cmd:ci-fast
+    kind: implements
+    to: req:unproven
+"#;
+    fs::write(temp_dir.path().join("atlas/example.atlas.yaml"), atlas_yaml).unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "ci",
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "review-packet",
+        ])
+        .output()
+        .expect("review-packet command should execute");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("## ⚠️ Missing Evidence"));
+    assert!(stdout.contains("requirement_not_proven"));
+    assert!(stdout.contains("Missing Evidence"));
+    assert!(stdout.contains("Owners"));
+    assert!(stdout.contains("req:unproven"));
+    assert!(stdout.contains("## 👤 Owners"));
+    assert!(stdout.contains("Scope Warnings"));
+    assert!(stdout.contains("Next Actions"));
+}
+
+#[test]
+fn test_review_packet_json_includes_missing_evidence_and_next_actions_for_unproven_requirement() {
+    let temp_dir = setup_temp_fixture("valid-minimal");
+    let atlas_yaml = r#"nodes:
+  - id: req:example
+    kind: requirement
+    title: Example requirement
+
+  - id: req:unproven
+    kind: requirement
+    title: Unproven requirement
+    touches:
+      - crates/engine/src/lib.rs
+
+  - id: scen:example-build
+    kind: scenario
+    title: Example build
+    paths:
+      - crates/engine/src/lib.rs
+
+  - id: cmd:ci-fast
+    kind: command
+    title: Fast CI
+
+edges:
+  - from: scen:example-build
+    kind: proves
+    to: req:example
+  - from: scen:example-build
+    kind: runs_with
+    to: cmd:ci-fast
+  - from: scen:example-build
+    kind: exercises
+    to: crate:engine
+  - from: cmd:ci-fast
+    kind: implements
+    to: req:unproven
+"#;
+    fs::write(temp_dir.path().join("atlas/example.atlas.yaml"), atlas_yaml).unwrap();
+
+    let output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "review-packet",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "--profile",
+            "ci",
+            "--paths",
+            "crates/engine/src/lib.rs",
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("impact command should execute");
+
+    assert!(output.status.success());
+    let payload: ImpactEnvelope =
+        serde_json::from_slice(&output.stdout).expect("review packet json should parse");
+    assert_eq!(payload.command, "review-packet");
+    assert_eq!(payload.schema_version, 1);
+    assert!(
+        payload
+            .payload
+            .missing_evidence
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::RequirementNotProven),
+        "expected requirement_not_proven diagnostic"
+    );
+    assert!(
+        payload
+            .payload
+            .suggested_fixes
+            .iter()
+            .any(|fix| fix
+                == "add a scenario that proves this requirement and connects to a command"),
+        "expected next-action suggestion for missing requirement evidence"
+    );
 }
 
 #[test]
