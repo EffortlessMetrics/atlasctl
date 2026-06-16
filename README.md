@@ -68,10 +68,15 @@ atlasctl why --path crates/atlasctl-core/src/lib.rs
 Bootstrap a new atlas or add new proof surfaces quickly:
 
 ```bash
-# Initialize a new repository
+# Initialize a new repository — writes atlas.toml plus a starter
+# atlas/seed.atlas.yaml that builds cleanly and yields a usable why chain
 atlasctl init
 
-# Scaffold a new scenario, artifact, or requirement
+# Edit the TODO path selectors in atlas/seed.atlas.yaml, then:
+atlasctl build
+atlasctl why scen:seed
+
+# Scaffold an additional scenario, artifact, or requirement
 atlasctl scaffold scenario my-new-feature
 ```
 

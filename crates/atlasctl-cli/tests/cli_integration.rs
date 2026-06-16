@@ -5131,3 +5131,121 @@ fn test_review_packet_includes_schema_version_in_markdown() {
         "review packet markdown should include protocol schema version"
     );
 }
+
+// ============================================================================
+// INIT COMMAND TESTS
+//
+// `atlasctl init` should seed a starter `atlas/seed.atlas.yaml` so a fresh
+// repo builds cleanly and yields a non-empty `why` chain without any
+// hand-authoring. See the onboarding plan / docs/metadata-conventions.md.
+// ============================================================================
+
+#[test]
+fn test_init_seeds_atlas_dir_and_config() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["init", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Initialized atlas in"))
+        .stdout(predicate::str::contains("Seeded starter metadata in"))
+        .stdout(predicate::str::contains("atlasctl why --id scen:seed"));
+
+    // Both atlas.toml and the seed fragment must exist.
+    assert!(temp_dir.path().join("atlas.toml").exists());
+    let seed_path = temp_dir.path().join("atlas").join("seed.atlas.yaml");
+    assert!(seed_path.exists(), "seed fragment should be written");
+
+    // The generated default profile must relax require_scenario_crate so the
+    // seed (which has no exercises -> crate: edge) compiles clean on any repo.
+    let config = fs::read_to_string(temp_dir.path().join("atlas.toml")).unwrap();
+    assert!(
+        config.contains("require_scenario_crate = false"),
+        "generated atlas.toml should disable require_scenario_crate in default profile"
+    );
+
+    // The seed must be self-contained: every edge target is a declared node.
+    let seed = fs::read_to_string(&seed_path).unwrap();
+    for id in ["req:seed", "scen:seed", "cmd:seed", "artifact:seed-report"] {
+        assert!(
+            seed.contains(&format!("id: {id}")),
+            "seed should declare node `{id}`"
+        );
+    }
+}
+
+#[test]
+fn test_init_then_build_is_clean_and_why_is_nonempty() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let repo_root = temp_dir.path();
+
+    // init
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["init", "--repo-root", repo_root.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // build: 0 errors, status ok. The seed's TODO touches selector emits one
+    // dead_selector warning (expected — it points the user at the thing to
+    // edit), so we assert on error count rather than total diagnostics.
+    let output_dir = repo_root.join(".atlas");
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "build",
+            "--repo-root",
+            repo_root.to_str().unwrap(),
+            "--out-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("nodes: 4"))
+        .stdout(predicate::str::contains("edges: 3"))
+        .stdout(predicate::str::contains("errors: 0"))
+        .stdout(predicate::str::contains("status: ok"));
+
+    // why: the seeded scenario must produce a non-empty proof chain.
+    let why_output = Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "why",
+            "--repo-root",
+            repo_root.to_str().unwrap(),
+            "scen:seed",
+        ])
+        .output()
+        .expect("why command should execute");
+    assert!(why_output.status.success(), "why should succeed");
+    let stdout = String::from_utf8_lossy(&why_output.stdout);
+    assert!(
+        stdout.contains("Proof chain:") && stdout.contains("req:seed"),
+        "why scen:seed should return a non-empty proof chain reaching req:seed"
+    );
+}
+
+#[test]
+fn test_init_does_not_clobber_existing_seed() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let atlas_dir = temp_dir.path().join("atlas");
+    fs::create_dir_all(&atlas_dir).unwrap();
+    let seed_path = atlas_dir.join("seed.atlas.yaml");
+    let original = "nodes: []\nedges: []\n";
+    fs::write(&seed_path, original).unwrap();
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args(["init", "--repo-root", temp_dir.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Skipped seed"))
+        .stdout(predicate::str::contains("already exists"));
+
+    // The user's existing seed must be byte-for-byte unchanged, and atlas.toml
+    // is still written.
+    assert_eq!(fs::read_to_string(&seed_path).unwrap(), original);
+    assert!(temp_dir.path().join("atlas.toml").exists());
+}
