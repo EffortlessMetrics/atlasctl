@@ -5151,7 +5151,7 @@ fn test_init_seeds_atlas_dir_and_config() {
         .success()
         .stdout(predicate::str::contains("Initialized atlas in"))
         .stdout(predicate::str::contains("Seeded starter metadata in"))
-        .stdout(predicate::str::contains("atlasctl why --id scen:seed"));
+        .stdout(predicate::str::contains("atlasctl why scen:seed"));
 
     // Both atlas.toml and the seed fragment must exist.
     assert!(temp_dir.path().join("atlas.toml").exists());

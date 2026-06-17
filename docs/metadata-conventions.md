@@ -52,7 +52,7 @@ The fastest path from a fresh checkout to useful output is `atlasctl init`, whic
 writes a starter `atlas/seed.atlas.yaml` (four nodes, three edges) plus an
 `atlas.toml` configured to build cleanly. Edit the `TODO` path selectors in the
 seed to point at real files, then run `atlasctl build` and
-`atlasctl why --id scen:seed`. Replace the seed once you have real scenarios.
+`atlasctl why scen:seed`. Replace the seed once you have real scenarios.
 
 To get meaningful `why` chains and impact surfaces in a repository that is already
 using Atlas, add at least one scenario node tied to changed paths plus a root
