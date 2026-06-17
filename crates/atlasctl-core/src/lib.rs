@@ -934,9 +934,11 @@ pub fn impacted_graph(graph: &AtlasGraph, request: &ImpactRequest) -> ImpactResp
             _ => None,
         })
         .collect::<Vec<_>>();
-    suggested_fixes.extend(missing_evidence.iter().filter_map(|diagnostic| {
-        scaffold_gap_suggestion_for_diagnostic(diagnostic).map(str::to_string)
-    }));
+    suggested_fixes.extend(
+        missing_evidence
+            .iter()
+            .filter_map(scaffold_gap_suggestion_for_diagnostic),
+    );
     suggested_fixes.extend(
         scope_warnings
             .iter()
@@ -1121,37 +1123,47 @@ fn maybe_sort_and_dedup_scope_warnings(scope_warnings: &mut Vec<String>) {
     scope_warnings.dedup();
 }
 
-fn scaffold_gap_suggestion_for_diagnostic(diagnostic: &AtlasDiagnostic) -> Option<&'static str> {
-    match diagnostic.code {
-        DiagnosticCode::RequirementNotProven => Some(
-            "run `atlasctl scaffold gap requirement_not_proven` to create starter metadata for this missing proof",
-        ),
-        DiagnosticCode::ClaimMissingProofCommand => Some(
-            "run `atlasctl scaffold gap claim_missing_proof_command` to create starter metadata for this claim proof gap",
-        ),
-        DiagnosticCode::PolicyLedgerMissingProofCommand => Some(
-            "run `atlasctl scaffold gap policy_ledger_missing_proof_command` to create starter metadata for this policy proof gap",
-        ),
-        DiagnosticCode::ScenarioMissingCommand => Some(
-            "run `atlasctl scaffold gap scenario_missing_command` to create starter metadata for this scenario command gap",
-        ),
-        DiagnosticCode::ScenarioMissingCrate => Some(
-            "run `atlasctl scaffold gap scenario_missing_crate` to create starter metadata for this scenario crate gap",
-        ),
-        DiagnosticCode::ArtifactMissingProducer => Some(
-            "run `atlasctl scaffold gap artifact_missing_producer` to create starter metadata for this artifact producer gap",
-        ),
-        DiagnosticCode::UncoveredCrate => Some(
-            "run `atlasctl scaffold gap uncovered_crate` to create starter metadata for this crate coverage gap",
-        ),
-        DiagnosticCode::ActiveGoalMissingPlan => Some(
-            "run `atlasctl scaffold gap active_goal_missing_plan` to create starter metadata for this active-goal plan gap",
-        ),
-        DiagnosticCode::ActiveGoalWorkItemMissingProof => Some(
-            "run `atlasctl scaffold gap active_goal_work_item_missing_proof` to create starter metadata for this active-goal proof gap",
-        ),
-        _ => None,
-    }
+fn scaffold_gap_suggestion_for_diagnostic(diagnostic: &AtlasDiagnostic) -> Option<String> {
+    // Every gap diagnostic that reaches here populates `subject` (the offending
+    // node id). When present, embed it as `--target <id>` so the user copies a
+    // command that writes a stub pointing at the *real* node instead of
+    // `<kind>:todo`. Falls back to the bare command when subject is absent.
+    let target_suffix = diagnostic
+        .subject
+        .as_ref()
+        .map(|id| format!(" --target {id}"))
+        .unwrap_or_default();
+    let code = diagnostic.code;
+    let reason = match code {
+        DiagnosticCode::RequirementNotProven => "to create starter metadata for this missing proof",
+        DiagnosticCode::ClaimMissingProofCommand => {
+            "to create starter metadata for this claim proof gap"
+        }
+        DiagnosticCode::PolicyLedgerMissingProofCommand => {
+            "to create starter metadata for this policy proof gap"
+        }
+        DiagnosticCode::ScenarioMissingCommand => {
+            "to create starter metadata for this scenario command gap"
+        }
+        DiagnosticCode::ScenarioMissingCrate => {
+            "to create starter metadata for this scenario crate gap"
+        }
+        DiagnosticCode::ArtifactMissingProducer => {
+            "to create starter metadata for this artifact producer gap"
+        }
+        DiagnosticCode::UncoveredCrate => "to create starter metadata for this crate coverage gap",
+        DiagnosticCode::ActiveGoalMissingPlan => {
+            "to create starter metadata for this active-goal plan gap"
+        }
+        DiagnosticCode::ActiveGoalWorkItemMissingProof => {
+            "to create starter metadata for this active-goal proof gap"
+        }
+        _ => return None,
+    };
+    let code_str = code.as_str();
+    Some(format!(
+        "run `atlasctl scaffold gap {code_str}{target_suffix}` {reason}"
+    ))
 }
 
 fn suggest_fix_for_scope_warning(warning: &str) -> Option<&'static str> {

@@ -4141,6 +4141,66 @@ fn test_scaffold_gap_policy_ledger_missing_proof_command() {
     assert!(content.contains("to: cmd:todo"));
 }
 
+#[test]
+fn test_scaffold_gap_uses_target_override() {
+    // `--target` threads the diagnostic's real subject into the stub so the
+    // generated `exercises` edge points at a real crate instead of `crate:todo`.
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "uncovered_crate",
+            "--target",
+            "crate:engine",
+        ])
+        .assert()
+        .success();
+
+    let scaffold_file = temp_dir.path().join("atlas/gap-uncovered_crate.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(
+        content.contains("to: crate:engine"),
+        "gap stub with --target should reference the real crate, not crate:todo; got:\n{content}"
+    );
+    assert!(
+        !content.contains("crate:todo"),
+        "gap stub with --target should not contain the placeholder crate:todo; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_scaffold_gap_without_target_falls_back_to_todo() {
+    // Backward-compat contract: omitting `--target` preserves the old
+    // `<kind>:todo` placeholder behavior.
+    let temp_dir = setup_temp_fixture("valid-minimal");
+
+    Command::cargo_bin("atlasctl-cli")
+        .unwrap()
+        .args([
+            "scaffold",
+            "--repo-root",
+            temp_dir.path().to_str().unwrap(),
+            "gap",
+            "uncovered_crate",
+        ])
+        .assert()
+        .success();
+
+    let scaffold_file = temp_dir.path().join("atlas/gap-uncovered_crate.atlas.yaml");
+    assert!(scaffold_file.exists());
+    let content = fs::read_to_string(scaffold_file).unwrap();
+    assert!(
+        content.contains("to: crate:todo"),
+        "gap stub without --target should fall back to crate:todo; got:\n{content}"
+    );
+}
+
 // ============================================================================
 // ERROR HANDLING TESTS
 // ============================================================================
@@ -4993,7 +5053,7 @@ edges:
     assert!(stdout.contains("## 👤 Owners"));
     assert!(stdout.contains("Scope Warnings"));
     assert!(stdout.contains("Next Actions"));
-    assert!(stdout.contains("atlasctl scaffold gap requirement_not_proven"));
+    assert!(stdout.contains("atlasctl scaffold gap requirement_not_proven --target req:unproven"));
 }
 
 #[test]
@@ -5075,13 +5135,11 @@ edges:
         "expected next-action suggestion for missing requirement evidence"
     );
     assert!(
-        payload
-            .payload
-            .suggested_fixes
-            .iter()
-            .any(|fix| fix
-                == "run `atlasctl scaffold gap requirement_not_proven` to create starter metadata for this missing proof"),
-        "expected scaffold next-action suggestion for missing requirement evidence"
+        payload.payload.suggested_fixes.iter().any(|fix| fix
+            .contains("atlasctl scaffold gap requirement_not_proven")
+            && fix.contains("--target req:unproven")
+            && fix.contains("to create starter metadata for this missing proof")),
+        "expected scaffold next-action suggestion carrying the diagnostic subject as --target"
     );
 }
 

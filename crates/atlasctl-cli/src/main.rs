@@ -47,6 +47,12 @@ struct ScaffoldArgs {
     #[arg(value_enum)]
     kind: ScaffoldKind,
     id: String,
+    /// Target node id for `gap` scaffolds (e.g. `crate:atlasctl-core`).
+    ///
+    /// When provided, the generated stub points at this node instead of a
+    /// `<kind>:todo` placeholder. Ignored for non-gap kinds.
+    #[arg(long)]
+    target: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -366,7 +372,10 @@ warnings_as_errors = true
             }
 
             let content = if is_gap_scaffold {
-                scaffold_content_for_gap(gap_diagnostic.as_deref().unwrap_or_default())
+                scaffold_content_for_gap(
+                    gap_diagnostic.as_deref().unwrap_or_default(),
+                    args.target.as_deref(),
+                )
             } else {
                 match args.kind {
                     ScaffoldKind::Scenario => format!(
@@ -1130,9 +1139,12 @@ fn print_why(outcome: &atlasctl_app::WhyOutcome) {
     }
 }
 
-fn scaffold_content_for_gap(diagnostic: &str) -> String {
+fn scaffold_content_for_gap(diagnostic: &str, target_override: Option<&str>) -> String {
     let normalized = normalize_slug(diagnostic);
-    let target = scaffold_gap_target(diagnostic);
+    // When the caller supplies a target (typically the diagnostic's subject
+    // node id, e.g. `crate:atlasctl-core`), use it in place of the default
+    // `<kind>:todo` placeholder so the stub points at a real node.
+    let target = target_override.unwrap_or_else(|| scaffold_gap_target(diagnostic));
 
     match diagnostic {
         "claim_missing_proof_command" => format!(
@@ -1271,7 +1283,7 @@ edges:
     to: req:todo
   - from: scen:gap-{normalized}
     kind: exercises
-    to: crate:todo
+    to: {target}
 "#
         ),
         "requirement_not_proven" => format!(
