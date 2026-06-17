@@ -48,6 +48,12 @@ Examples:
 
 ## External onboarding: minimum metadata for usable `why` output
 
+The fastest path from a fresh checkout to useful output is `atlasctl init`, which
+writes a starter `atlas/seed.atlas.yaml` (four nodes, three edges) plus an
+`atlas.toml` configured to build cleanly. Edit the `TODO` path selectors in the
+seed to point at real files, then run `atlasctl build` and
+`atlasctl why scen:seed`. Replace the seed once you have real scenarios.
+
 To get meaningful `why` chains and impact surfaces in a repository that is already
 using Atlas, add at least one scenario node tied to changed paths plus a root
 `atlas.toml` that includes your metadata roots.
@@ -104,6 +110,14 @@ edges:
     kind: emits
     to: artifact:atlas-json
 ```
+
+> **Profile note:** the default validation profile sets
+> `require_scenario_crate = true`, so a scenario without an
+> `exercises -> crate:<name>` edge emits a `ScenarioMissingCrate` warning. This
+> example omits that edge for brevity; either add one (Cargo repos auto-derive
+> `crate:<name>` nodes from `Cargo.toml`) or set
+> `require_scenario_crate = false` under `[profiles.default]` — which is what
+> `atlasctl init` does for its seed.
 
 With this in place, `atlasctl why --path <path>`, `doctor`, and `impacted` can
 return path-aware proof links instead of only discovery-only structural warnings.
