@@ -15,11 +15,11 @@ on:
 jobs:
   droid:
     if: |
-      (github.event_name == 'issue_comment' && github.event.comment.body != '' && contains(toLowerCase(github.event.comment.body), '@droid')) ||
-      (github.event_name == 'pull_request_review_comment' && github.event.comment.body != '' && contains(toLowerCase(github.event.comment.body), '@droid')) ||
-      (github.event_name == 'pull_request_review' && github.event.review.body != '' && contains(toLowerCase(github.event.review.body), '@droid')) ||
-      (github.event_name == 'issues' && ((github.event.issue.body != '' && contains(toLowerCase(github.event.issue.body), '@droid')) || (github.event.issue.title != '' && contains(toLowerCase(github.event.issue.title), '@droid')))) ||
-      (github.event_name == 'pull_request' && ((github.event.pull_request.body != '' && contains(toLowerCase(github.event.pull_request.body), '@droid')) || (github.event.pull_request.title != '' && contains(toLowerCase(github.event.pull_request.title), '@droid'))))
+      (github.event_name == 'issue_comment' && github.event.comment.body != '' && contains(github.event.comment.body, '@droid')) ||
+      (github.event_name == 'pull_request_review_comment' && github.event.comment.body != '' && contains(github.event.comment.body, '@droid')) ||
+      (github.event_name == 'pull_request_review' && github.event.review.body != '' && contains(github.event.review.body, '@droid')) ||
+      (github.event_name == 'issues' && ((github.event.issue.body != '' && contains(github.event.issue.body, '@droid')) || (github.event.issue.title != '' && contains(github.event.issue.title, '@droid')))) ||
+      (github.event_name == 'pull_request' && ((github.event.pull_request.body != '' && contains(github.event.pull_request.body, '@droid')) || (github.event.pull_request.title != '' && contains(github.event.pull_request.title, '@droid'))))
     runs-on: ubuntu-latest
     permissions:
       contents: read
