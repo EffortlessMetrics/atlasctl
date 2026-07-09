@@ -11,7 +11,7 @@ concurrency:
 jobs:
   droid-review:
     # Keep workflow non-fatal on forks/contexts without Factory key configured.
-    if: github.event.pull_request.draft == false && secrets.FACTORY_API_KEY != ''
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,7 +24,19 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
+      - name: Check for Factory API key
+        id: check_factory_key
+        shell: bash
+        env:
+          FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
+        run: |
+          if [ -z "${FACTORY_API_KEY}" ]; then
+            echo "has_key=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "has_key=true" >> "${GITHUB_OUTPUT}"
+          fi
       - name: Run Droid Auto Review
+        if: steps.check_factory_key.outputs.has_key == 'true'
         uses: Factory-AI/droid-action@main
         with:
           factory_api_key: ${{ secrets.FACTORY_API_KEY }}
