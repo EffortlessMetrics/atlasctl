@@ -906,8 +906,16 @@ fn compile_options(common: &CommonArgs) -> CompileOptions {
     }
 }
 
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 3
+        && bytes[1] == b':'
+        && bytes[0].is_ascii_alphabetic()
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
+}
+
 fn resolve_repo_root(repo_root: &Utf8PathBuf) -> Utf8PathBuf {
-    if repo_root.is_absolute() {
+    if repo_root.is_absolute() || has_windows_drive_prefix(repo_root.as_str()) {
         return repo_root.clone();
     }
 
@@ -1456,17 +1464,11 @@ fn normalize_path_input_for_repo(repo_root: &Utf8PathBuf, value: &str) -> String
 }
 
 fn normalize_path_outside_repo(path: &str) -> String {
-    let mut normalized = path;
-
-    if path.len() >= 3 {
-        let bytes = path.as_bytes();
-        let has_drive_prefix = bytes[1] == b':'
-            && bytes[0].is_ascii_alphabetic()
-            && (bytes[2] == b'/' || bytes[2] == b'\\');
-        if has_drive_prefix {
-            normalized = &path[3..];
-        }
-    }
+    let normalized = if has_windows_drive_prefix(path) {
+        &path[3..]
+    } else {
+        path
+    };
 
     let normalized = normalized.trim_start_matches(&['/', '\\'][..]);
     let mut parts = Vec::new();
